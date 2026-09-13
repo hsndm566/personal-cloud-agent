@@ -40,4 +40,4 @@ The workspace initially contained only an unborn Git repository. No gh, uv, or D
 
 ## Acceptance status
 
-Phase 0 selection complete. Fork, baseline, implementation, live integration tests, and deployment remain pending. Do not describe milestone 1 as complete until the supplied checklist is demonstrated.
+Phase 0 selection is complete and the fork exists at https://github.com/hsndm566/personal-cloud-agent. The current fork main contains the read-only GitHub MCP hardening, Clerk JWT ownership boundary, and isolated LangGraph user-memory contract. Local verification on 2026-09-14: ruff passed; pyrefly reported 0 errors; 201 tests passed and 4 skipped. One Streamlit test remains runner-blocked because this sandbox cannot resolve `Path.home()` inside Streamlit's script thread. Supabase, Mem0, LiteLLM aliases, pgmq dispatch, structured planning/verifier, and restart-resume E2E remain pending. Do not describe milestone 1 as complete until the supplied checklist is demonstrated.
