@@ -80,6 +80,13 @@ class Settings(BaseSettings):
 
     AUTH_SECRET: SecretStr | None = None
 
+    # Clerk authentication. When CLERK_JWT_KEY is set, Clerk's verified JWT
+    # subject becomes the server-owned user identity for request isolation.
+    CLERK_JWT_KEY: SecretStr | None = None
+    CLERK_ISSUER: str | None = None
+    CLERK_AUTHORIZED_PARTIES: str | None = None
+    CLERK_AUDIENCE: str | None = None
+
     OPENAI_API_KEY: SecretStr | None = None
     DEEPSEEK_API_KEY: SecretStr | None = None
     ANTHROPIC_API_KEY: SecretStr | None = None

@@ -44,6 +44,10 @@ def mock_agent():
 def mock_settings(mock_env):
     """Fixture to ensure settings are clean for each test."""
     with patch("service.service.settings") as mock_settings:
+        mock_settings.CLERK_JWT_KEY = None
+        mock_settings.CLERK_ISSUER = None
+        mock_settings.CLERK_AUTHORIZED_PARTIES = None
+        mock_settings.CLERK_AUDIENCE = None
         yield mock_settings
 
 
