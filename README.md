@@ -123,6 +123,15 @@ that can be shared by multiple service instances. The default SQLite configurati
 checkpoints on disk but uses an in-process store for long-term memory, so user memory is
 intended for local development only and is lost when the process exits.
 
+### Agent control plane
+
+The first Supabase control-plane migration is `supabase/migrations/202609140001_agent_control.sql`.
+It keeps projects, runs, ordered run events, task verification, approvals, and artifacts in a
+private `agent_control` schema and creates the `agent_runs` pgmq queue. The migration has been
+applied and verified in the active `autoapply-sa-phase1-dev.` project. It is separate from the
+existing AutoApply public schema; the service will access it with its server database connection
+after the run-dispatch adapter is added.
+
 For local development, we recommend using [docker compose watch](https://docs.docker.com/compose/file-watch/). This feature allows for a smoother development experience by automatically updating your containers when changes are detected in your source code.
 
 1. Make sure you have Docker and Docker Compose (>= [v2.23.0](https://docs.docker.com/compose/release-notes/#2230)) installed on your system.
