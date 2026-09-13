@@ -13,6 +13,7 @@ from langgraph.types import interrupt
 from pydantic import BaseModel, Field
 
 from core import get_model, settings
+from memory.user_memory import UserMemory, user_namespace
 
 # Added logger
 logger = logging.getLogger(__name__)
@@ -85,14 +86,15 @@ async def determine_birthdate(
     namespace = None
     key = "birthdate"
     birthdate = None  # Initialize birthdate
+    user_memory = UserMemory(store)
 
     if user_id:
-        # Use user_id in the namespace to ensure uniqueness per user
-        namespace = (user_id,)
+        # Keep all long-term memory under the canonical user namespace.
+        namespace = user_namespace(user_id, "profile")
 
         # Check if we already have the birthdate in the store for this user
         try:
-            result = await store.aget(namespace, key=key)
+            result = await user_memory.get(user_id, key, scope="profile")
             # Handle cases where store.aget might return Item directly or a list
             user_data = None
             if result:  # Check if anything was returned
@@ -159,7 +161,7 @@ async def determine_birthdate(
         # Convert datetime to ISO format string for JSON serialization
         birthdate_str = birthdate.isoformat() if birthdate else None
         try:
-            await store.aput(namespace, key, {"birthdate": birthdate_str})
+            await user_memory.put(user_id, key, {"birthdate": birthdate_str}, scope="profile")
         except Exception as e:
             # Log the error or handle cases where the store write might fail
             logger.error(f"Error writing to store for namespace {namespace}, key {key}: {e}")
