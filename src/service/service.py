@@ -106,6 +106,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     "AUTH_SECRET is not configured — all API endpoints are unauthenticated. "
                     "Set AUTH_SECRET in your environment to enable bearer token authentication."
                 )
+            if settings.DATABASE_TYPE.value == "sqlite":
+                logger.warning(
+                    "Long-term user memory is process-local with SQLite. "
+                    "Use DATABASE_TYPE=postgres for restart-safe shared memory."
+                )
 
             # Configure agents with both memory components and async loading
             agents = get_all_agent_info()

@@ -115,6 +115,14 @@ If your agents or chosen LLM require file-based credential files or certificates
 
 This project includes a Docker setup for easy development and deployment. The `compose.yaml` file defines three services: `postgres`, `agent_service` and `streamlit_app`. The `Dockerfile` for each service is in their respective directories.
 
+### Persistence and user memory
+
+The service uses the configured LangGraph store for cross-conversation user memory. Set
+`DATABASE_TYPE=postgres` and provide the `POSTGRES_*` settings for restart-safe persistence
+that can be shared by multiple service instances. The default SQLite configuration keeps
+checkpoints on disk but uses an in-process store for long-term memory, so user memory is
+intended for local development only and is lost when the process exits.
+
 For local development, we recommend using [docker compose watch](https://docs.docker.com/compose/file-watch/). This feature allows for a smoother development experience by automatically updating your containers when changes are detected in your source code.
 
 1. Make sure you have Docker and Docker Compose (>= [v2.23.0](https://docs.docker.com/compose/release-notes/#2230)) installed on your system.

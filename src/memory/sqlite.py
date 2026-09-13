@@ -35,6 +35,7 @@ async def get_sqlite_store():
 
     Note: SQLite-specific store isn't available in LangGraph,
     so we use InMemoryStore wrapped in an async context manager for compatibility.
+    This store is process-local and is intended for local development only.
     """
     store_manager = AsyncInMemoryStore()
     yield await store_manager.__aenter__()
