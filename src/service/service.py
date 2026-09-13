@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from typing import Annotated, Any
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, status
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from fastapi.routing import APIRoute
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -44,6 +44,12 @@ from schema import (
     UserThreadsInput,
 )
 from service.agui import router as agui_router
+from service.auth import (
+    authenticate_request,
+    ensure_thread_owner,
+    metadata_user_id,
+    require_matching_user_id,
+)
 from service.threads import list_user_threads
 from service.utils import (
     convert_message_content_to_string,
@@ -63,16 +69,20 @@ def custom_generate_unique_id(route: APIRoute) -> str:
 
 
 def verify_bearer(
+    request: Request,
     http_auth: Annotated[
         HTTPAuthorizationCredentials | None,
         Depends(HTTPBearer(description="Please provide AUTH_SECRET api key.", auto_error=False)),
     ],
 ) -> None:
-    if not settings.AUTH_SECRET:
-        return
-    auth_secret = settings.AUTH_SECRET.get_secret_value()
-    if not http_auth or http_auth.credentials != auth_secret:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+    request.state.user_id = authenticate_request(
+        http_auth,
+        auth_secret=settings.AUTH_SECRET,
+        clerk_jwt_key=settings.CLERK_JWT_KEY,
+        clerk_issuer=settings.CLERK_ISSUER,
+        clerk_authorized_parties=settings.CLERK_AUTHORIZED_PARTIES,
+        clerk_audience=settings.CLERK_AUDIENCE,
+    )
 
 
 @asynccontextmanager
@@ -137,7 +147,10 @@ async def info() -> ServiceMetadata:
 
 
 async def _handle_input(
-    user_input: UserInput, agent: AgentGraph, agent_id: str
+    user_input: UserInput,
+    agent: AgentGraph,
+    agent_id: str,
+    authenticated_user_id: str | None = None,
 ) -> tuple[dict[str, Any], UUID]:
     """
     Parse user input and handle any required interrupt resumption.
@@ -145,7 +158,11 @@ async def _handle_input(
     """
     run_id = uuid7()
     thread_id = user_input.thread_id or str(uuid4())
-    user_id = user_input.user_id or str(uuid4())
+    user_id = require_matching_user_id(authenticated_user_id, user_input.user_id) or str(uuid4())
+
+    await ensure_thread_owner(
+        getattr(agent, "checkpointer", None), user_input.thread_id, authenticated_user_id
+    )
 
     configurable = {"thread_id": thread_id, "user_id": user_id}
     if user_input.model is not None:
@@ -200,7 +217,9 @@ async def _handle_input(
 
 @router.post("/{agent_id}/invoke", operation_id="invoke_with_agent_id")
 @router.post("/invoke")
-async def invoke(user_input: UserInput, agent_id: str = DEFAULT_AGENT) -> ChatMessage:
+async def invoke(
+    user_input: UserInput, request: Request, agent_id: str = DEFAULT_AGENT
+) -> ChatMessage:
     """
     Invoke an agent with user input to retrieve a final response.
 
@@ -215,7 +234,9 @@ async def invoke(user_input: UserInput, agent_id: str = DEFAULT_AGENT) -> ChatMe
     # you'd want to include it. You could update the API to return a list of ChatMessages
     # in that case.
     agent: AgentGraph = get_agent(agent_id)
-    kwargs, run_id = await _handle_input(user_input, agent, agent_id)
+    kwargs, run_id = await _handle_input(
+        user_input, agent, agent_id, getattr(request.state, "user_id", None)
+    )
 
     try:
         response_events: list[tuple[str, Any]] = await agent.ainvoke(**kwargs, stream_mode=["updates", "values"])  # type: ignore # fmt: skip
@@ -235,13 +256,15 @@ async def invoke(user_input: UserInput, agent_id: str = DEFAULT_AGENT) -> ChatMe
 
         output.run_id = str(run_id)
         return output
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"An exception occurred: {e}")
         raise HTTPException(status_code=500, detail="Unexpected error")
 
 
 async def message_generator(
-    user_input: StreamInput, agent_id: str = DEFAULT_AGENT
+    user_input: StreamInput, agent_id: str = DEFAULT_AGENT, authenticated_user_id: str | None = None
 ) -> AsyncGenerator[str, None]:
     """
     Generate a stream of messages from the agent.
@@ -249,7 +272,7 @@ async def message_generator(
     This is the workhorse method for the /stream endpoint.
     """
     agent: AgentGraph = get_agent(agent_id)
-    kwargs, run_id = await _handle_input(user_input, agent, agent_id)
+    kwargs, run_id = await _handle_input(user_input, agent, agent_id, authenticated_user_id)
 
     try:
         # Process streamed events from the graph and yield messages over the SSE stream.
@@ -381,7 +404,9 @@ def _sse_response_example() -> dict[int | str, Any]:
     operation_id="stream_with_agent_id",
 )
 @router.post("/stream", response_class=StreamingResponse, responses=_sse_response_example())
-async def stream(user_input: StreamInput, agent_id: str = DEFAULT_AGENT) -> StreamingResponse:
+async def stream(
+    user_input: StreamInput, request: Request, agent_id: str = DEFAULT_AGENT
+) -> StreamingResponse:
     """
     Stream an agent's response to a user input, including intermediate messages and tokens.
 
@@ -392,8 +417,13 @@ async def stream(user_input: StreamInput, agent_id: str = DEFAULT_AGENT) -> Stre
 
     Set `stream_tokens=false` to return intermediate messages but not token-by-token.
     """
+    authenticated_user_id = getattr(request.state, "user_id", None)
+    agent = get_agent(agent_id)
+    await ensure_thread_owner(
+        getattr(agent, "checkpointer", None), user_input.thread_id, authenticated_user_id
+    )
     return StreamingResponse(
-        message_generator(user_input, agent_id),
+        message_generator(user_input, agent_id, authenticated_user_id),
         media_type="text/event-stream",
     )
 
@@ -420,7 +450,9 @@ async def feedback(feedback: Feedback) -> FeedbackResponse:
 
 @router.post("/{agent_id}/history", operation_id="history_with_agent_id")
 @router.post("/history")
-async def history(input: ChatHistoryInput, agent_id: str = DEFAULT_AGENT) -> ChatHistory:
+async def history(
+    input: ChatHistoryInput, request: Request, agent_id: str = DEFAULT_AGENT
+) -> ChatHistory:
     """
     Get chat history for a thread and agent.
 
@@ -433,8 +465,18 @@ async def history(input: ChatHistoryInput, agent_id: str = DEFAULT_AGENT) -> Cha
         # Functional-API agents keep the conversation in `__previous__`, which aget_state
         # doesn't return, so read the raw checkpoint first and only fall back for graphs.
         checkpointer = getattr(agent, "checkpointer", None)
+        authenticated_user_id = getattr(request.state, "user_id", None)
+        if authenticated_user_id and not checkpointer:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Thread not found")
         if checkpointer:
             tup = await checkpointer.aget_tuple(config)
+            if (
+                authenticated_user_id
+                and metadata_user_id(tup.metadata if tup else None) != authenticated_user_id
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND, detail="Thread not found"
+                )
             if tup and "__previous__" in (tup.checkpoint.get("channel_values") or {}):
                 messages = messages_from_checkpoint(tup.checkpoint)
         if not messages:
@@ -442,6 +484,8 @@ async def history(input: ChatHistoryInput, agent_id: str = DEFAULT_AGENT) -> Cha
             messages = state_snapshot.values["messages"]
         chat_messages: list[ChatMessage] = [langchain_to_chat_message(m) for m in messages]
         return ChatHistory(messages=chat_messages)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"An exception occurred: {e}")
         raise HTTPException(status_code=500, detail="Unexpected error")
@@ -450,23 +494,27 @@ async def history(input: ChatHistoryInput, agent_id: str = DEFAULT_AGENT) -> Cha
 @router.get("/{agent_id}/threads", operation_id="threads_with_agent_id")
 @router.get("/threads")
 async def threads(
-    input: UserThreadsInput = Depends(), agent_id: str = DEFAULT_AGENT
+    request: Request, input: UserThreadsInput = Depends(), agent_id: str = DEFAULT_AGENT
 ) -> UserThreads:
     """
     List a user's conversation threads for an agent, most recently updated first.
 
-    `user_id` is asserted by the caller and not checked against the credentials on the
-    request, so any holder of the bearer token can list any user's threads - the same
-    trust model as /history. Put your own authorization in front of this before end
-    users can reach it.
+    Under Clerk, the authenticated subject owns the query and a caller-supplied
+    different `user_id` is rejected.
     """
+    authenticated_user_id = getattr(request.state, "user_id", None)
+    user_id = require_matching_user_id(authenticated_user_id, input.user_id)
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="user_id is required"
+        )
     agent: AgentGraph = get_agent(agent_id)
     checkpointer = getattr(agent, "checkpointer", None)
     if not checkpointer:
         return UserThreads(threads=[])
 
     try:
-        summaries = await list_user_threads(checkpointer, input.user_id, agent_id, input.limit)
+        summaries = await list_user_threads(checkpointer, user_id, agent_id, input.limit)
     except Exception as e:
         logger.error(f"An exception occurred: {e}")
         raise HTTPException(status_code=500, detail="Unexpected error")

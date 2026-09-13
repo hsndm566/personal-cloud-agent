@@ -17,8 +17,9 @@ tracing.
 | `POST /agui/{agent_id}/run` | Run an agent, streaming AG-UI events over SSE |
 | `POST /agui/run` | Same, using the default agent |
 
-The request body is the standard AG-UI `RunAgentInput`. The same `AUTH_SECRET` bearer auth as the
-rest of the API applies.
+The request body is the standard AG-UI `RunAgentInput`. The same authentication as the rest of the
+API applies. Use Clerk JWT authentication for per-user ownership, or `AUTH_SECRET` for a trusted
+single-owner runtime.
 
 ## Connecting a frontend
 

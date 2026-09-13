@@ -97,6 +97,7 @@ The repository is structured as follows:
 - [Setting up Ollama](docs/Ollama.md)
 - [Setting up VertexAI](docs/VertexAI.md)
 - [Setting up RAG with ChromaDB](docs/RAG_Assistant.md)
+- [Setting up Clerk authentication](docs/Clerk_Auth.md)
 
 ### Building or customizing your own agent
 

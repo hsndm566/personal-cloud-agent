@@ -24,6 +24,7 @@ from langfuse.langchain import CallbackHandler  # type: ignore[import-untyped]
 
 from agents import DEFAULT_AGENT, AgentGraph, get_agent
 from core import settings
+from service.auth import ensure_thread_owner, require_matching_user_id
 from service.utils import ensure_model_available
 
 logger = logging.getLogger(__name__)
@@ -35,7 +36,9 @@ router = APIRouter(prefix="/agui")
 RESERVED_CONFIGURABLE_KEYS = {"thread_id", "checkpoint_id", "checkpoint_ns"}
 
 
-def _base_config(input_data: RunAgentInput, agent_id: str) -> RunnableConfig:
+def _base_config(
+    input_data: RunAgentInput, agent_id: str, authenticated_user_id: str | None = None
+) -> RunnableConfig:
     """Build the base RunnableConfig for an AG-UI run.
 
     Clients can pass configurable values (e.g. `model`, `user_id`, or custom agent
@@ -61,7 +64,10 @@ def _base_config(input_data: RunAgentInput, agent_id: str) -> RunnableConfig:
         callbacks.append(CallbackHandler())
 
     configurable = dict(configurable)
-    user_id = configurable.setdefault("user_id", str(uuid4()))
+    user_id = require_matching_user_id(authenticated_user_id, configurable.get("user_id"))
+    if user_id is None:
+        user_id = str(uuid4())
+    configurable["user_id"] = user_id
 
     return RunnableConfig(
         configurable=configurable,
@@ -108,7 +114,11 @@ async def agui_run(
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found")
 
-    config = _base_config(input_data, agent_id)
+    authenticated_user_id = getattr(request.state, "user_id", None)
+    await ensure_thread_owner(
+        getattr(graph, "checkpointer", None), input_data.thread_id, authenticated_user_id
+    )
+    config = _base_config(input_data, agent_id, authenticated_user_id)
     encoder = EventEncoder(accept=request.headers.get("accept", ""))
     return StreamingResponse(
         _event_stream(agent_id, graph, input_data, config, encoder),
