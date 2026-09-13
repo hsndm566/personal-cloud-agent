@@ -132,6 +132,13 @@ applied and verified in the active `autoapply-sa-phase1-dev.` project. It is sep
 existing AutoApply public schema; the service will access it with its server database connection
 after the run-dispatch adapter is added.
 
+### Planning and skills
+
+`src/agent_foundation/plan.py` defines the structured plan and verification contract. A run is
+complete only when every success criterion has a `verified` result. `src/agent_foundation/skills.py`
+loads the version-controlled Markdown cards under `skills/` and selects only cards with explicit
+keyword overlap; each card carries its allowed tool names for the later permission boundary.
+
 For local development, we recommend using [docker compose watch](https://docs.docker.com/compose/file-watch/). This feature allows for a smoother development experience by automatically updating your containers when changes are detected in your source code.
 
 1. Make sure you have Docker and Docker Compose (>= [v2.23.0](https://docs.docker.com/compose/release-notes/#2230)) installed on your system.
