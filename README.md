@@ -139,6 +139,9 @@ complete only when every success criterion has a `verified` result. `src/agent_f
 loads the version-controlled Markdown cards under `skills/` and selects only cards with explicit
 keyword overlap; each card carries its allowed tool names for the later permission boundary.
 
+`src/memory/mem0_adapter.py` provides the semantic-memory boundary. It scopes Mem0 reads and writes
+by user and optional project, while the Supabase control plane remains the authoritative audit store.
+
 For local development, we recommend using [docker compose watch](https://docs.docker.com/compose/file-watch/). This feature allows for a smoother development experience by automatically updating your containers when changes are detected in your source code.
 
 1. Make sure you have Docker and Docker Compose (>= [v2.23.0](https://docs.docker.com/compose/release-notes/#2230)) installed on your system.
