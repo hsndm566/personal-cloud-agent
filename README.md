@@ -142,6 +142,12 @@ keyword overlap; each card carries its allowed tool names for the later permissi
 `src/memory/mem0_adapter.py` provides the semantic-memory boundary. It scopes Mem0 reads and writes
 by user and optional project, while the Supabase control plane remains the authoritative audit store.
 
+`src/model_gateway/gateway.py` provides the provider-neutral model boundary. Agent code selects a
+logical alias such as `agent-default` or `fast-cheap`; deployment configuration supplies the actual
+provider model identifier and optional fallbacks. `LiteLLMClient` is a lazy adapter around LiteLLM's
+async completion API, and tests use an injected fake client so verification never requires provider
+credentials.
+
 For local development, we recommend using [docker compose watch](https://docs.docker.com/compose/file-watch/). This feature allows for a smoother development experience by automatically updating your containers when changes are detected in your source code.
 
 1. Make sure you have Docker and Docker Compose (>= [v2.23.0](https://docs.docker.com/compose/release-notes/#2230)) installed on your system.

@@ -14,9 +14,9 @@ What already works: these are upstream source-supported capabilities, not yet lo
 
 What we will preserve: upstream history, license, tests, UI, API/client contracts, checkpoint initialization, deployment files, existing example agents and provider integrations.
 
-What is missing: project/user ownership, pgmq durable dispatch, semantic memory via Mem0, Deep Agents harness integration, logical LiteLLM aliases, structured evidence verification, durable run timeline.
+What is missing: Deep Agents harness integration, worker restart/resume E2E, and full authenticated deployment wiring.
 
-Minimal additions required: register a Deep Agents harness through the existing agent extension boundary; configure LiteLLM Proxy through OpenAI-compatible transport; integrate Mem0 OSS and pgmq; add owned project/run/event records and verification constraints; extend existing UI.
+Minimal additions required: register a Deep Agents harness through the existing agent extension boundary; deploy the configured LiteLLM aliases; integrate the worker lifecycle; extend existing UI.
 
 Why chosen over alternatives:
 
@@ -40,4 +40,4 @@ The workspace initially contained only an unborn Git repository. No gh, uv, or D
 
 ## Acceptance status
 
-Phase 0 selection is complete and the fork exists at https://github.com/hsndm566/personal-cloud-agent. The current fork main contains the read-only GitHub MCP hardening, Clerk JWT ownership boundary, and isolated LangGraph user-memory contract. Local verification on 2026-09-14: ruff passed; pyrefly reported 0 errors; 209 tests passed and 4 skipped. Supabase control-plane tables, pgmq dispatch, structured planning/verifier, version-controlled skill selection, and a pinned Mem0 OSS adapter are now implemented. LiteLLM aliases, Deep Agents execution, worker restart/resume E2E, and full authenticated deployment remain pending. Do not describe milestone 1 as complete until the supplied checklist is demonstrated.
+Phase 0 selection is complete and the fork exists at https://github.com/hsndm566/personal-cloud-agent. The current fork main contains the read-only GitHub MCP hardening, Clerk JWT ownership boundary, and isolated LangGraph user-memory contract. Local verification on 2026-09-14: ruff passed; pyrefly reported 0 errors; 213 tests passed and 4 skipped. Supabase control-plane tables, pgmq dispatch, structured planning/verifier, version-controlled skill selection, a pinned Mem0 OSS adapter, and an injectable LiteLLM alias gateway are implemented. Deep Agents execution, worker restart/resume E2E, and full authenticated deployment remain pending. Do not describe milestone 1 as complete until the supplied checklist is demonstrated.
