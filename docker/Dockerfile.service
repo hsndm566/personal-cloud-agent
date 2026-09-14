@@ -4,6 +4,13 @@ WORKDIR /app
 
 ENV UV_PROJECT_ENVIRONMENT="/usr/local/"
 ENV UV_COMPILE_BYTECODE=1
+# Safe defaults make the service bootable in a fresh deployment. Real provider
+# credentials and a shared Postgres/Supabase connection can override these at runtime.
+ENV HOST="0.0.0.0" \
+    PORT="8080" \
+    DATABASE_TYPE="sqlite" \
+    SQLITE_DB_PATH="/tmp/checkpoints.db" \
+    USE_FAKE_MODEL="true"
 
 COPY pyproject.toml .
 COPY uv.lock .
