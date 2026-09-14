@@ -148,6 +148,10 @@ provider model identifier and optional fallbacks. `LiteLLMClient` is a lazy adap
 async completion API, and tests use an injected fake client so verification never requires provider
 credentials.
 
+`src/worker/dispatch.py` provides the restart-safe pgmq consumer boundary. It leases one run at a
+time and archives a message only after its handler succeeds; failed handlers leave the message
+available for retry after the visibility timeout.
+
 For local development, we recommend using [docker compose watch](https://docs.docker.com/compose/file-watch/). This feature allows for a smoother development experience by automatically updating your containers when changes are detected in your source code.
 
 1. Make sure you have Docker and Docker Compose (>= [v2.23.0](https://docs.docker.com/compose/release-notes/#2230)) installed on your system.

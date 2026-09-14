@@ -25,6 +25,7 @@ COPY src/memory/ ./memory/
 COPY src/model_gateway/ ./model_gateway/
 COPY src/schema/ ./schema/
 COPY src/service/ ./service/
+COPY src/worker/ ./worker/
 COPY src/run_service.py .
 
 CMD ["python", "run_service.py"]
