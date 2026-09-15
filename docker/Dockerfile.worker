@@ -1,16 +1,8 @@
 FROM python:3.13.14-slim
 
 WORKDIR /app
-
 ENV UV_PROJECT_ENVIRONMENT="/usr/local/"
 ENV UV_COMPILE_BYTECODE=1
-# Safe defaults make the service bootable in a fresh deployment. Real provider
-# credentials and a shared Postgres/Supabase connection can override these at runtime.
-ENV HOST="0.0.0.0" \
-    PORT="8080" \
-    DATABASE_TYPE="sqlite" \
-    SQLITE_DB_PATH="/tmp/checkpoints.db" \
-    USE_FAKE_MODEL="true"
 
 COPY pyproject.toml .
 COPY uv.lock .
@@ -24,9 +16,7 @@ COPY src/core/ ./core/
 COPY src/memory/ ./memory/
 COPY src/model_gateway/ ./model_gateway/
 COPY src/schema/ ./schema/
-COPY src/service/ ./service/
 COPY src/worker/ ./worker/
 COPY skills/ ./skills/
-COPY src/run_service.py .
 
-CMD ["python", "run_service.py"]
+CMD ["python", "-m", "worker.main"]
