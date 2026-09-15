@@ -1,5 +1,6 @@
 from enum import StrEnum
 from json import loads
+from pathlib import Path
 from typing import Annotated, Any
 
 from dotenv import find_dotenv
@@ -29,6 +30,8 @@ from schema.models import (
     Provider,
     VertexAIModelName,
 )
+
+SKILLS_DIR: Path = Path(__file__).resolve().parents[2] / "skills"
 
 
 class DatabaseType(StrEnum):
@@ -141,6 +144,11 @@ class Settings(BaseSettings):
     POSTGRES_APPLICATION_NAME: str = "agent-service-toolkit"
     POSTGRES_MIN_CONNECTIONS_PER_POOL: int = 1
     POSTGRES_MAX_CONNECTIONS_PER_POOL: int = 1
+
+    CONTROL_PLANE_DATABASE_URL: SecretStr | None = None
+    CONTROL_PLANE_QUEUE_NAME: str = "agent_runs"
+    CONTROL_PLANE_VISIBILITY_TIMEOUT: int = 60
+    CONTROL_PLANE_POLL_INTERVAL: float = 1.0
 
     # MongoDB Configuration
     MONGO_HOST: str | None = None

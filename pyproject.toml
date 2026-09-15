@@ -61,6 +61,7 @@ dependencies = [
     "langchain-mcp-adapters>=0.3.0",
     "ddgs>=9.14.4",
     "ag-ui-langgraph~=0.0.42",
+    "deepagents==0.1.4",
 ]
 
 # Supply-chain cooldown: resolution only considers releases >=14 days old. Needs the

@@ -85,3 +85,63 @@ class ControlPlane:
             "select pgmq.send(%s, %s)",
             ("agent_runs", Jsonb({"run_id": str(record.id), "owner_id": record.owner_id})),
         )
+
+    async def get_run(self, run_id: UUID) -> RunRecord:
+        result = await self._connection.execute(
+            """
+            select id, owner_id, goal, thread_id, project_id, status, created_at
+            from agent_control.runs
+            where id = %s
+            """,
+            (run_id,),
+        )
+        record = await result.fetchone() if hasattr(result, "fetchone") else result
+        if record is None:
+            raise KeyError(f"run {run_id} not found")
+        if not isinstance(record, dict):
+            record = dict(record)
+        return RunRecord(
+            id=record["id"],
+            owner_id=record["owner_id"],
+            goal=record["goal"],
+            thread_id=record["thread_id"],
+            project_id=record["project_id"],
+            status=record["status"],
+            created_at=record["created_at"],
+        )
+
+    async def set_run_status(
+        self,
+        *,
+        run_id: UUID,
+        owner_id: str,
+        status: str,
+        payload: dict[str, Any] | None = None,
+    ) -> None:
+        await self._connection.execute(
+            "update agent_control.runs set status = %s where id = %s and owner_id = %s",
+            (status, run_id, owner_id),
+        )
+        await self.append_event(
+            run_id=run_id,
+            owner_id=owner_id,
+            event_type="status_change",
+            state=status,
+            payload=payload,
+        )
+
+    async def record_artifact(
+        self,
+        *,
+        run_id: UUID,
+        owner_id: str,
+        kind: str,
+        content: dict[str, Any],
+    ) -> None:
+        await self._connection.execute(
+            """
+            insert into agent_control.artifacts (run_id, owner_id, kind, content)
+            values (%s, %s, %s, %s)
+            """,
+            (run_id, owner_id, kind, Jsonb(content)),
+        )

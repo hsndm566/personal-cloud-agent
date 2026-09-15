@@ -63,6 +63,7 @@ dependencies = [
     { name = "ag-ui-langgraph" },
     { name = "aiosqlite" },
     { name = "ddgs" },
+    { name = "deepagents" },
     { name = "docx2txt" },
     { name = "duckduckgo-search" },
     { name = "fastapi" },
@@ -131,6 +132,7 @@ requires-dist = [
     { name = "ag-ui-langgraph", specifier = "~=0.0.42" },
     { name = "aiosqlite", specifier = ">=0.22.1" },
     { name = "ddgs", specifier = ">=9.14.4" },
+    { name = "deepagents", specifier = "==0.1.4" },
     { name = "docx2txt", specifier = "~=0.8" },
     { name = "duckduckgo-search", specifier = ">=8.1.1" },
     { name = "fastapi", specifier = "~=0.141.0" },
@@ -1088,6 +1090,20 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/19/b6/b7f3118a3b0a285f54fb4e1289c39e3cba1944066828aa04af9cf80f878e/ddgs-9.15.0.tar.gz", hash = "sha256:12c4148da66525031214279d3ecb5170778a484f2616cac12667d0824818d07d", size = 40040, upload-time = "2026-08-16T05:20:55.574Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/66/00/401852478e2a6fff87fbcafe8c33d8e623643bba67905188b40581dcdbdd/ddgs-9.15.0-py3-none-any.whl", hash = "sha256:2c6cce11d8625a030ed471265230dd6d1f5e12a6efecde5dfa3a1b33882888e0", size = 50159, upload-time = "2026-08-16T05:20:54.359Z" },
+]
+
+[[package]]
+name = "deepagents"
+version = "0.1.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "langchain" },
+    { name = "langchain-anthropic" },
+    { name = "langchain-core" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ac/e3/3828ebe68519fc09dd03a48ae323e3be51496f72a271208c4e7ec980a64d/deepagents-0.1.4.tar.gz", hash = "sha256:3ad7ba86975c302a4f7e8c59abfaa4f22f6c7f69f9e1bdf7eb8233be97dbe63d", size = 34181, upload-time = "2025-10-23T16:00:24.31Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/cf/7a/466b7f29de27f05f3f74e00b83604924a74a666bb73f8d917e5c23c37fa5/deepagents-0.1.4-py3-none-any.whl", hash = "sha256:fd3b6d4b1a14db8da8858c73e623fbc7cfe56164bd7641cc5ec9bcd989d3da47", size = 28022, upload-time = "2025-10-23T16:00:23.379Z" },
 ]
 
 [[package]]
