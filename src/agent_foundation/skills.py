@@ -31,6 +31,10 @@ class MarkdownSkillRouter:
         )
         return [skill for score, _, skill in ranked if score > 0]
 
+    @property
+    def skills(self) -> tuple[Skill, ...]:
+        return self._skills
+
     @staticmethod
     def _read_skill(path: Path) -> Skill:
         lines = path.read_text(encoding="utf-8").splitlines()
