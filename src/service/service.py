@@ -31,6 +31,7 @@ from langsmith import uuid7
 from agents import DEFAULT_AGENT, AgentGraph, get_agent, get_all_agent_info, load_agent
 from core import settings
 from memory import initialize_database, initialize_store
+from memory.personal_context import personal_context_message
 from schema import (
     ChatHistory,
     ChatHistoryInput,
@@ -211,6 +212,10 @@ async def _handle_input(
         input = Command(resume=user_input.message)
     else:
         input = {"messages": [HumanMessage(content=user_input.message)]}
+        if agent_id == "deep-agent":
+            context = await personal_context_message(agent.store, user_id)
+            if context:
+                input["messages"].insert(0, context)
 
     kwargs = {
         "input": input,

@@ -8,6 +8,7 @@ from langchain_core.runnables import RunnableConfig
 
 from agents import AgentGraph, get_agent, load_agent
 from control_plane.supabase import ControlPlane
+from memory.personal_context import personal_context_message
 from worker.dispatch import RunMessage
 
 logger = logging.getLogger(__name__)
@@ -30,8 +31,10 @@ def build_agent_run_handler(control_plane: ControlPlane, agent_id: str):
             metadata={"user_id": run.owner_id, "agent_id": agent_id, "run_id": str(run.id)},
         )
         try:
+            context = await personal_context_message(agent.store, run.owner_id)
+            messages = ([context] if context else []) + [HumanMessage(content=run.goal)]
             response_events: list[tuple[str, Any]] = await agent.ainvoke(  # type: ignore[arg-type]
-                input={"messages": [HumanMessage(content=run.goal)]},
+                input={"messages": messages},
                 config=config,
                 stream_mode=["updates", "values"],
             )

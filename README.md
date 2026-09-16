@@ -160,6 +160,11 @@ The separate `CONTROL_PLANE_DATABASE_URL` supplies the queue and run audit datab
 SQLite keeps the long-term store in memory; an ephemeral container cannot provide durable
 personal memory with that configuration. Automatic site and activity ingestion remains pending.
 
+Deep-agent chats and queued worker runs automatically retrieve the current owner's saved
+`profile`, `knowledge`, and `activity` namespaces before invocation. Reference data is bounded
+and explicitly identified as data rather than instructions. This retrieval does not collect
+new site pages or activity: sources must still be connected and synchronized.
+
 For local development, we recommend using [docker compose watch](https://docs.docker.com/compose/file-watch/). This feature allows for a smoother development experience by automatically updating your containers when changes are detected in your source code.
 
 1. Make sure you have Docker and Docker Compose (>= [v2.23.0](https://docs.docker.com/compose/release-notes/#2230)) installed on your system.

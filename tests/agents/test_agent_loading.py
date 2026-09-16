@@ -24,6 +24,7 @@ class TestAgentLoading:
         # Mock the GitHub MCP agent
         mock_agent = Mock(spec=LazyLoadingAgent)
         mock_agent.load = AsyncMock()
+        mock_agent._loaded = False
 
         with patch.dict(agents, {"test-lazy-agent": Mock(graph_like=mock_agent)}):
             await load_agent("test-lazy-agent")
