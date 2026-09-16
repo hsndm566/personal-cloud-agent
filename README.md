@@ -165,6 +165,13 @@ Deep-agent chats and queued worker runs automatically retrieve the current owner
 and explicitly identified as data rather than instructions. This retrieval does not collect
 new site pages or activity: sources must still be connected and synchronized.
 
+Connected sources can upsert a record with `PUT /personal-context/{scope}/{key}` using
+`{"content": "...", "source": "..."}`. Scopes are `profile`, `knowledge`, and `activity`;
+the same key replaces an older snapshot. `GET` at the same path returns its stored value
+and server timestamp. These endpoints require a verified user identity from Clerk and
+never accept a caller-supplied owner ID. Content is limited to 8,000 characters per record;
+larger source documents should be split into records with distinct keys.
+
 For local development, we recommend using [docker compose watch](https://docs.docker.com/compose/file-watch/). This feature allows for a smoother development experience by automatically updating your containers when changes are detected in your source code.
 
 1. Make sure you have Docker and Docker Compose (>= [v2.23.0](https://docs.docker.com/compose/release-notes/#2230)) installed on your system.

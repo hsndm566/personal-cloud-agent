@@ -51,6 +51,7 @@ from service.auth import (
     metadata_user_id,
     require_matching_user_id,
 )
+from service.personal_context import router as personal_context_router
 from service.threads import list_user_threads
 from service.utils import (
     convert_message_content_to_string,
@@ -128,7 +129,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 agent.checkpointer = saver
                 # Set store for long-term memory (cross-conversation knowledge)
                 agent.store = store
-            yield
+            app.state.personal_context_store = store
+            try:
+                yield
+            finally:
+                app.state.personal_context_store = None
     except Exception as e:
         logger.error(f"Error during database/store/agents initialization: {e}")
         raise
@@ -138,6 +143,7 @@ app = FastAPI(lifespan=lifespan, generate_unique_id_function=custom_generate_uni
 router = APIRouter(dependencies=[Depends(verify_bearer)])
 # AG-UI protocol endpoints inherit the same bearer auth - see service/agui.py
 router.include_router(agui_router)
+router.include_router(personal_context_router)
 
 
 @router.get("/info")
