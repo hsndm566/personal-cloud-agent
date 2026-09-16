@@ -12,6 +12,7 @@ from control_plane.supabase import ControlPlane
 from core import settings
 from worker.agent_runner import build_agent_run_handler
 from worker.dispatch import DurableRunWorker
+from worker.persistence import initialized_worker_agent
 from worker.pgmq_client import PgmqQueueClient
 
 logger = logging.getLogger(__name__)
@@ -24,9 +25,12 @@ async def main() -> None:
     dsn = settings.CONTROL_PLANE_DATABASE_URL.get_secret_value()
     # Commit each queue lease before executing the agent. Holding a transaction
     # open while polling hides leases and run updates from other processes.
-    async with await psycopg.AsyncConnection.connect(
-        dsn, row_factory=dict_row, autocommit=True
-    ) as conn:
+    async with (
+        await psycopg.AsyncConnection.connect(
+            dsn, row_factory=dict_row, autocommit=True
+        ) as conn,
+        initialized_worker_agent("deep-agent"),
+    ):
         control_plane = ControlPlane(cast(Any, conn))
         queue_client = PgmqQueueClient(cast(Any, conn))
         worker = DurableRunWorker(

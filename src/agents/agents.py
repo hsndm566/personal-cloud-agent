@@ -72,7 +72,7 @@ agents: dict[str, Agent] = {
 async def load_agent(agent_id: str) -> None:
     """Load lazy agents if needed."""
     graph_like = agents[agent_id].graph_like
-    if isinstance(graph_like, LazyLoadingAgent):
+    if isinstance(graph_like, LazyLoadingAgent) and not graph_like._loaded:
         await graph_like.load()
 
 

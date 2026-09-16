@@ -152,6 +152,14 @@ credentials.
 time and archives a message only after its handler succeeds; failed handlers leave the message
 available for retry after the visibility timeout.
 
+The standalone worker (`python -m worker.main`, image `docker/Dockerfile.worker`) attaches
+the configured LangGraph checkpointer and store for its entire lifetime. Agents load once,
+so subsequent runs reuse the graph and its persistence resources. For durable cloud memory,
+configure `DATABASE_TYPE=postgres` and the `POSTGRES_*` settings for both API and worker.
+The separate `CONTROL_PLANE_DATABASE_URL` supplies the queue and run audit database.
+SQLite keeps the long-term store in memory; an ephemeral container cannot provide durable
+personal memory with that configuration. Automatic site and activity ingestion remains pending.
+
 For local development, we recommend using [docker compose watch](https://docs.docker.com/compose/file-watch/). This feature allows for a smoother development experience by automatically updating your containers when changes are detected in your source code.
 
 1. Make sure you have Docker and Docker Compose (>= [v2.23.0](https://docs.docker.com/compose/release-notes/#2230)) installed on your system.
