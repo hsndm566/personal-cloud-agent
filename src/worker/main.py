@@ -22,7 +22,11 @@ async def main() -> None:
     if settings.CONTROL_PLANE_DATABASE_URL is None:
         raise RuntimeError("CONTROL_PLANE_DATABASE_URL must be set for the worker process")
     dsn = settings.CONTROL_PLANE_DATABASE_URL.get_secret_value()
-    async with await psycopg.AsyncConnection.connect(dsn, row_factory=dict_row) as conn:
+    # Commit each queue lease before executing the agent. Holding a transaction
+    # open while polling hides leases and run updates from other processes.
+    async with await psycopg.AsyncConnection.connect(
+        dsn, row_factory=dict_row, autocommit=True
+    ) as conn:
         control_plane = ControlPlane(cast(Any, conn))
         queue_client = PgmqQueueClient(cast(Any, conn))
         worker = DurableRunWorker(
