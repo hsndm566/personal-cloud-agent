@@ -5,7 +5,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from control_plane import ControlPlane, RunRecord
 
@@ -18,6 +18,24 @@ class RunCreateInput(BaseModel):
     goal: str = Field(min_length=1, max_length=12000)
     project_id: UUID | None = None
     thread_id: str | None = Field(default=None, min_length=1, max_length=255)
+
+    @field_validator("goal")
+    @classmethod
+    def normalize_goal(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("goal must not be blank")
+        return normalized
+
+    @field_validator("thread_id")
+    @classmethod
+    def normalize_thread_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("thread_id must not be blank")
+        return normalized
 
 
 class RunResponse(BaseModel):
@@ -73,18 +91,27 @@ async def create_run(body: RunCreateInput, request: Request) -> RunResponse:
     """Persist and enqueue one durable agent run for the authenticated owner."""
     owner_id = _owner_id(request)
     control_plane = _control_plane(request)
-    record = await control_plane.create_run(
-        owner_id=owner_id,
-        goal=body.goal,
-        thread_id=body.thread_id or str(uuid4()),
-        project_id=body.project_id,
-    )
+    try:
+        record = await control_plane.create_run(
+            owner_id=owner_id,
+            goal=body.goal,
+            thread_id=body.thread_id or str(uuid4()),
+            project_id=body.project_id,
+        )
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found",
+        ) from exc
     await control_plane.append_event(
         run_id=record.id,
         owner_id=owner_id,
         event_type="run.created",
         state=record.status,
-        payload={"thread_id": record.thread_id, "project_id": str(record.project_id) if record.project_id else None},
+        payload={
+            "thread_id": record.thread_id,
+            "project_id": str(record.project_id) if record.project_id else None,
+        },
     )
     try:
         await control_plane.enqueue_run(record)
