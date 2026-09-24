@@ -1,3 +1,4 @@
+import asyncio
 from uuid import uuid4
 
 import pytest
@@ -10,6 +11,8 @@ class FakeQueue:
         self.rows = list(rows)
         self.archived: list[int] = []
         self.reads: list[tuple[str, int, int]] = []
+        self.extended: list[tuple[str, int, int]] = []
+        self.renewed = asyncio.Event()
 
     async def read(self, queue, visibility_timeout, quantity):
         self.reads.append((queue, visibility_timeout, quantity))
@@ -17,6 +20,10 @@ class FakeQueue:
 
     async def archive(self, queue, msg_id):
         self.archived.append(msg_id)
+
+    async def extend_visibility(self, queue, msg_id, visibility_timeout):
+        self.extended.append((queue, msg_id, visibility_timeout))
+        self.renewed.set()
 
 
 @pytest.mark.asyncio
@@ -47,3 +54,17 @@ async def test_worker_leaves_message_for_retry_when_handler_fails():
     with pytest.raises(RuntimeError, match="transient"):
         await worker.run_once()
     assert queue.archived == []
+
+
+@pytest.mark.asyncio
+async def test_worker_renews_visibility_during_long_handler():
+    run_id = uuid4()
+    queue = FakeQueue([{"msg_id": 11, "message": {"run_id": str(run_id), "owner_id": "user-3"}}])
+
+    async def wait_for_renewal(_message):
+        await asyncio.wait_for(queue.renewed.wait(), timeout=1.5)
+
+    worker = DurableRunWorker(queue, wait_for_renewal, visibility_timeout=1)
+    assert await worker.run_once() is True
+    assert queue.extended == [("agent_runs", 11, 1)]
+    assert queue.archived == [11]
