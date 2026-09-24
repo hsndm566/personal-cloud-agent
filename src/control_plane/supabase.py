@@ -7,6 +7,10 @@ from uuid import UUID, uuid4
 
 from psycopg.types.json import Jsonb
 
+RUN_STATUSES = frozenset(
+    {"queued", "running", "blocked", "completed", "failed", "cancelled", "interrupted"}
+)
+
 
 class AsyncConnection(Protocol):
     async def execute(self, query: str, params: tuple[Any, ...] = ()) -> Any: ...
@@ -187,6 +191,8 @@ class ControlPlane:
         status: str,
         payload: dict[str, Any] | None = None,
     ) -> None:
+        if status not in RUN_STATUSES:
+            raise ValueError(f"unsupported run status: {status}")
         result = await self._connection.execute(
             """
             update agent_control.runs
