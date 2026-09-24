@@ -164,3 +164,18 @@ async def test_status_update_records_timestamped_transition():
     assert "returning id" in update_query
     assert update_params[-2:] == (run_id, "user_123")
     assert "agent_control.run_events" in connection.calls[1][0]
+
+
+@pytest.mark.asyncio
+async def test_status_update_rejects_unknown_status_before_database():
+    connection = ReadConnection([])
+    plane = ControlPlane(connection)
+
+    with pytest.raises(ValueError, match="unsupported run status"):
+        await plane.set_run_status(
+            run_id=uuid4(),
+            owner_id="user_123",
+            status="done-ish",
+        )
+
+    assert connection.calls == []
