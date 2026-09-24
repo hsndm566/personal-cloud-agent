@@ -39,6 +39,17 @@ def build_agent_run_handler(control_plane: ControlPlane, agent_id: str):
                 config=config,
                 stream_mode=["updates", "values"],
             )
+            if not response_events:
+                raise ValueError("Agent returned no response events")
+            response_type, response = response_events[-1]
+            if "__interrupt__" in response:
+                status = "interrupted"
+                output_content = response["__interrupt__"][0].value
+            elif response_type == "values":
+                status = "completed"
+                output_content = response["messages"][-1].content
+            else:
+                raise ValueError(f"Unexpected response type from agent: {response_type}")
         except Exception as exc:
             max_attempts = max(1, settings.CONTROL_PLANE_MAX_ATTEMPTS)
             error_payload = {
@@ -68,16 +79,6 @@ def build_agent_run_handler(control_plane: ControlPlane, agent_id: str):
                 )
                 return
             raise
-
-        response_type, response = response_events[-1]
-        if "__interrupt__" in response:
-            status = "interrupted"
-            output_content = response["__interrupt__"][0].value
-        elif response_type == "values":
-            status = "completed"
-            output_content = response["messages"][-1].content
-        else:
-            raise ValueError(f"Unexpected response type from agent: {response_type}")
         await control_plane.record_artifact(
             run_id=run.id,
             owner_id=run.owner_id,
