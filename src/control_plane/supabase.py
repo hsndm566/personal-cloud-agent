@@ -107,7 +107,17 @@ class ControlPlane:
 
     @staticmethod
     def _run_record(record: Any) -> RunRecord:
-        return self._run_record(record)
+        if not isinstance(record, dict):
+            record = dict(record)
+        return RunRecord(
+            id=record["id"],
+            owner_id=record["owner_id"],
+            goal=record["goal"],
+            thread_id=record["thread_id"],
+            project_id=record["project_id"],
+            status=record["status"],
+            created_at=record["created_at"],
+        )
 
     async def get_run(self, run_id: UUID) -> RunRecord:
         result = await self._connection.execute(
