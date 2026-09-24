@@ -102,3 +102,38 @@ def test_get_run_events_returns_owned_timeline(test_client):
         owner_id=record.owner_id,
         limit=100,
     )
+
+
+def test_create_run_rejects_blank_goal(test_client):
+    plane = AsyncMock()
+    app.state.control_plane = plane
+
+    with patch("service.service.authenticate_request", return_value="user_123"):
+        response = test_client.post("/runs", json={"goal": "   "})
+
+    assert response.status_code == 422
+    plane.create_run.assert_not_awaited()
+
+
+def test_create_run_hides_foreign_project(test_client):
+    plane = AsyncMock()
+    plane.create_run.side_effect = KeyError("project not found")
+    app.state.control_plane = plane
+
+    with patch("service.service.authenticate_request", return_value="user_123"):
+        response = test_client.post(
+            "/runs",
+            json={"goal": "Inspect", "project_id": str(uuid4())},
+        )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Project not found"
+
+
+def test_create_run_requires_configured_control_plane(test_client):
+    app.state.control_plane = None
+
+    with patch("service.service.authenticate_request", return_value="user_123"):
+        response = test_client.post("/runs", json={"goal": "Inspect"})
+
+    assert response.status_code == 503
