@@ -1,8 +1,8 @@
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
-from service import app
 from control_plane import RunRecord
+from service import app
 
 
 def _owned_record(*, owner_id: str = "user_123", status: str = "queued") -> RunRecord:
