@@ -86,3 +86,28 @@ async def test_final_attempt_marks_failed_and_returns_for_archive(monkeypatch):
     assert kwargs["status"] == "failed"
     assert kwargs["payload"]["attempt"] == 3
     assert kwargs["payload"]["reason"] == "max_attempts_exhausted"
+
+
+@pytest.mark.asyncio
+async def test_empty_agent_output_counts_toward_retry_limit(monkeypatch):
+    run = RunRecord(uuid4(), "owner", "goal", "thread")
+    plane = AsyncMock()
+    plane.get_run.return_value = run
+    plane.mark_run_running.return_value = 3
+    agent = AsyncMock()
+    agent.store = None
+    agent.ainvoke.return_value = []
+    monkeypatch.setattr("worker.agent_runner.load_agent", AsyncMock())
+    monkeypatch.setattr("worker.agent_runner.get_agent", lambda _agent_id: agent)
+
+    with patch("worker.agent_runner.settings") as mock_settings:
+        mock_settings.CONTROL_PLANE_MAX_ATTEMPTS = 3
+        await build_agent_run_handler(plane, "deep-agent")(
+            RunMessage(1, run.id, run.owner_id)
+        )
+
+    plane.set_run_status.assert_awaited_once()
+    kwargs = plane.set_run_status.call_args.kwargs
+    assert kwargs["status"] == "failed"
+    assert kwargs["payload"]["error_type"] == "ValueError"
+    assert kwargs["payload"]["attempt"] == 3
