@@ -149,7 +149,7 @@ async def test_status_update_does_not_append_event_for_foreign_owner():
 @pytest.mark.asyncio
 async def test_status_update_records_timestamped_transition():
     run_id = uuid4()
-    connection = ReadConnection([FakeCursor(one={"id": run_id}), None])
+    connection = ReadConnection([FakeCursor(one={"retry_count": 1}), None])
     plane = ControlPlane(connection)
 
     await plane.set_run_status(
@@ -317,7 +317,7 @@ async def test_mark_run_running_claims_queued_or_retry_run():
 
     claimed = await plane.mark_run_running(run_id=run_id, owner_id="user_123")
 
-    assert claimed is True
+    assert claimed == 1
     query, params = connection.calls[0]
     assert "status in ('queued','running')" in query
     assert params == (run_id, "user_123")
@@ -331,5 +331,5 @@ async def test_mark_run_running_loses_to_cancelled_state():
 
     claimed = await plane.mark_run_running(run_id=uuid4(), owner_id="user_123")
 
-    assert claimed is False
+    assert claimed == 0
     assert len(connection.calls) == 1
