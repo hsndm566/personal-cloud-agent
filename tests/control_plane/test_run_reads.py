@@ -179,3 +179,131 @@ async def test_status_update_rejects_unknown_status_before_database():
         )
 
     assert connection.calls == []
+
+
+@pytest.mark.asyncio
+async def test_list_runs_filters_by_owner_and_status():
+    run_id = uuid4()
+    row = {
+        "id": run_id,
+        "owner_id": "user_123",
+        "goal": "Inspect repo",
+        "thread_id": "thread_123",
+        "project_id": None,
+        "status": "running",
+        "created_at": datetime.now(UTC),
+    }
+    connection = ReadConnection([FakeCursor(many=[row])])
+    plane = ControlPlane(connection)
+
+    runs = await plane.list_runs(owner_id="user_123", status="running", limit=10)
+
+    assert [item.id for item in runs] == [run_id]
+    query, params = connection.calls[0]
+    assert "where owner_id = %s and status = %s" in query
+    assert params == ("user_123", "running", 10)
+
+
+@pytest.mark.asyncio
+async def test_list_artifacts_scopes_by_owner():
+    run_id = uuid4()
+    artifact_id = uuid4()
+    rows = [
+        {
+            "id": artifact_id,
+            "kind": "final_output",
+            "uri": None,
+            "content": {"content": "done"},
+            "created_at": datetime.now(UTC),
+        }
+    ]
+    connection = ReadConnection([FakeCursor(many=rows)])
+    plane = ControlPlane(connection)
+
+    artifacts = await plane.list_artifacts(
+        run_id=run_id,
+        owner_id="user_123",
+        limit=20,
+    )
+
+    assert artifacts[0]["id"] == artifact_id
+    query, params = connection.calls[0]
+    assert "where run_id = %s and owner_id = %s" in query
+    assert params == (run_id, "user_123", 20)
+
+
+@pytest.mark.asyncio
+async def test_cancel_run_only_allows_non_running_states():
+    run_id = uuid4()
+    running = {
+        "id": run_id,
+        "owner_id": "user_123",
+        "goal": "Inspect repo",
+        "thread_id": "thread_123",
+        "project_id": None,
+        "status": "running",
+        "created_at": datetime.now(UTC),
+    }
+    connection = ReadConnection([FakeCursor(one=running)])
+    plane = ControlPlane(connection)
+
+    with pytest.raises(RuntimeError, match="cannot be cancelled"):
+        await plane.cancel_run(run_id=run_id, owner_id="user_123")
+
+    assert len(connection.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_cancel_queued_run_is_atomic_and_audited():
+    run_id = uuid4()
+    created_at = datetime.now(UTC)
+    queued = {
+        "id": run_id,
+        "owner_id": "user_123",
+        "goal": "Inspect repo",
+        "thread_id": "thread_123",
+        "project_id": None,
+        "status": "queued",
+        "created_at": created_at,
+    }
+    cancelled = dict(queued, status="cancelled")
+    connection = ReadConnection(
+        [
+            FakeCursor(one=queued),
+            FakeCursor(one=cancelled),
+            None,
+        ]
+    )
+    plane = ControlPlane(connection)
+
+    result = await plane.cancel_run(run_id=run_id, owner_id="user_123")
+
+    assert result.status == "cancelled"
+    assert "status in ('queued','blocked','interrupted')" in connection.calls[1][0]
+    assert "agent_control.run_events" in connection.calls[2][0]
+
+
+@pytest.mark.asyncio
+async def test_worker_heartbeat_upsert_and_read():
+    now = datetime.now(UTC)
+    heartbeat = {
+        "worker_id": "worker-1",
+        "agent_id": "deep-agent",
+        "metadata": {"pid": 123},
+        "started_at": now,
+        "last_seen_at": now,
+    }
+    connection = ReadConnection([None, FakeCursor(one=heartbeat)])
+    plane = ControlPlane(connection)
+
+    await plane.upsert_worker_heartbeat(
+        worker_id="worker-1",
+        agent_id="deep-agent",
+        metadata={"pid": 123},
+    )
+    latest = await plane.latest_worker_heartbeat()
+
+    assert latest == heartbeat
+    assert "worker_heartbeats" in connection.calls[0][0]
+    assert "on conflict (worker_id)" in connection.calls[0][0]
+    assert "order by last_seen_at desc" in connection.calls[1][0]
