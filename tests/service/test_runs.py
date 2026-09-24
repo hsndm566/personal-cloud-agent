@@ -6,13 +6,19 @@ from control_plane import RunRecord
 from service import app
 
 
-def _owned_record(*, owner_id: str = "user_123", status: str = "queued") -> RunRecord:
+def _owned_record(
+    *,
+    owner_id: str = "user_123",
+    status: str = "queued",
+    retry_count: int = 0,
+) -> RunRecord:
     return RunRecord(
         id=uuid4(),
         owner_id=owner_id,
         goal="Inspect the repository",
         thread_id="thread_123",
         status=status,
+        retry_count=retry_count,
     )
 
 
@@ -151,6 +157,7 @@ def test_list_runs_is_owner_scoped(test_client):
 
     assert response.status_code == 200
     assert response.json()[0]["id"] == str(record.id)
+    assert response.json()[0]["retry_count"] == 0
     plane.list_runs.assert_awaited_once_with(
         owner_id=record.owner_id,
         limit=25,
@@ -254,3 +261,40 @@ def test_worker_health_reports_unavailable_without_heartbeat(test_client):
         "last_seen_at": None,
         "age_seconds": None,
     }
+
+
+def test_get_run_exposes_retry_count(test_client):
+    plane = AsyncMock()
+    record = _owned_record(status="running", retry_count=2)
+    plane.get_run_for_owner.return_value = record
+    app.state.control_plane = plane
+
+    with patch("service.service.authenticate_request", return_value=record.owner_id):
+        response = test_client.get(f"/runs/{record.id}")
+
+    assert response.status_code == 200
+    assert response.json()["retry_count"] == 2
+
+
+def test_worker_health_marks_stale_heartbeat_unavailable(test_client):
+    plane = AsyncMock()
+    stale = datetime.now(UTC) - timedelta(minutes=5)
+    plane.latest_worker_heartbeat.return_value = {
+        "worker_id": "worker-1",
+        "agent_id": "deep-agent",
+        "metadata": {},
+        "started_at": stale,
+        "last_seen_at": stale,
+    }
+    app.state.control_plane = plane
+
+    with (
+        patch("service.service.authenticate_request", return_value="user_123"),
+        patch("service.runs.settings") as mock_settings,
+    ):
+        mock_settings.CONTROL_PLANE_HEARTBEAT_STALE_AFTER = 45.0
+        response = test_client.get("/runs/system/worker-health")
+
+    assert response.status_code == 200
+    assert response.json()["available"] is False
+    assert response.json()["age_seconds"] > 45.0
