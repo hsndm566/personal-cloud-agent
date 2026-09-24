@@ -79,10 +79,9 @@ def build_agent_run_handler(control_plane: ControlPlane, agent_id: str):
                 )
                 return
             raise
-        await control_plane.record_artifact(
+        await control_plane.record_final_output(
             run_id=run.id,
             owner_id=run.owner_id,
-            kind="final_output",
             content={"content": output_content, "agent_id": agent_id},
         )
         await control_plane.set_run_status(
