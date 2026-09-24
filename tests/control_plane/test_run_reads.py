@@ -333,3 +333,22 @@ async def test_mark_run_running_loses_to_cancelled_state():
 
     assert claimed == 0
     assert len(connection.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_final_output_uses_partial_unique_upsert():
+    connection = ReadConnection([None])
+    plane = ControlPlane(connection)
+    run_id = uuid4()
+
+    await plane.record_final_output(
+        run_id=run_id,
+        owner_id="user_123",
+        content={"content": "done"},
+    )
+
+    query, params = connection.calls[0]
+    assert "on conflict (run_id) where kind = 'final_output'" in query
+    assert "do update" in query
+    assert params[0] == run_id
+    assert params[1] == "user_123"
