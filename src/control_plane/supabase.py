@@ -24,6 +24,7 @@ class RunRecord:
     thread_id: str
     project_id: UUID | None = None
     status: str = "queued"
+    retry_count: int = 0
     created_at: datetime | None = None
 
 
@@ -116,13 +117,14 @@ class ControlPlane:
             thread_id=record["thread_id"],
             project_id=record["project_id"],
             status=record["status"],
+            retry_count=int(record.get("retry_count", 0)),
             created_at=record["created_at"],
         )
 
     async def get_run(self, run_id: UUID) -> RunRecord:
         result = await self._connection.execute(
             """
-            select id, owner_id, goal, thread_id, project_id, status, created_at
+            select id, owner_id, goal, thread_id, project_id, status, retry_count, created_at
             from agent_control.runs
             where id = %s
             """,
@@ -139,7 +141,7 @@ class ControlPlane:
             raise ValueError("owner_id must not be empty")
         result = await self._connection.execute(
             """
-            select id, owner_id, goal, thread_id, project_id, status, created_at
+            select id, owner_id, goal, thread_id, project_id, status, retry_count, created_at
             from agent_control.runs
             where id = %s and owner_id = %s
             """,
@@ -203,7 +205,7 @@ class ControlPlane:
             raise ValueError(f"unsupported run status: {status}")
         if status is None:
             query = """
-                select id, owner_id, goal, thread_id, project_id, status, created_at
+                select id, owner_id, goal, thread_id, project_id, status, retry_count, created_at
                 from agent_control.runs
                 where owner_id = %s
                 order by created_at desc
@@ -212,7 +214,7 @@ class ControlPlane:
             params = (owner_id, limit)
         else:
             query = """
-                select id, owner_id, goal, thread_id, project_id, status, created_at
+                select id, owner_id, goal, thread_id, project_id, status, retry_count, created_at
                 from agent_control.runs
                 where owner_id = %s and status = %s
                 order by created_at desc
@@ -317,32 +319,34 @@ class ControlPlane:
             return None
         return row if isinstance(row, dict) else dict(row)
 
-    async def mark_run_running(self, *, run_id: UUID, owner_id: str) -> bool:
-        """Atomically claim a queued/retry run unless it was cancelled or finalized."""
+    async def mark_run_running(self, *, run_id: UUID, owner_id: str) -> int:
+        """Atomically claim a queued/retry run and return its persisted attempt number."""
         result = await self._connection.execute(
             """
             update agent_control.runs
             set status = 'running',
+                retry_count = retry_count + 1,
                 started_at = coalesce(started_at, now()),
                 updated_at = now()
             where id = %s
               and owner_id = %s
               and status in ('queued','running')
-            returning id
+            returning retry_count
             """,
             (run_id, owner_id),
         )
         claimed = await result.fetchone() if hasattr(result, "fetchone") else result
         if claimed is None:
-            return False
+            return 0
+        attempt = int(claimed["retry_count"] if isinstance(claimed, dict) else claimed[0])
         await self.append_event(
             run_id=run_id,
             owner_id=owner_id,
             event_type="status_change",
             state="running",
-            payload={"phase": "worker_claim"},
+            payload={"phase": "worker_claim", "attempt": attempt},
         )
-        return True
+        return attempt
 
     async def set_run_status(
         self,
