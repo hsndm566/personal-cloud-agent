@@ -110,6 +110,60 @@ class ControlPlane:
             created_at=record["created_at"],
         )
 
+    async def get_run_for_owner(self, run_id: UUID, owner_id: str) -> RunRecord:
+        """Return a run only when it belongs to the requested owner."""
+        if not owner_id.strip():
+            raise ValueError("owner_id must not be empty")
+        result = await self._connection.execute(
+            """
+            select id, owner_id, goal, thread_id, project_id, status, created_at
+            from agent_control.runs
+            where id = %s and owner_id = %s
+            """,
+            (run_id, owner_id),
+        )
+        record = await result.fetchone() if hasattr(result, "fetchone") else result
+        if record is None:
+            raise KeyError(f"run {run_id} not found")
+        if not isinstance(record, dict):
+            record = dict(record)
+        return RunRecord(
+            id=record["id"],
+            owner_id=record["owner_id"],
+            goal=record["goal"],
+            thread_id=record["thread_id"],
+            project_id=record["project_id"],
+            status=record["status"],
+            created_at=record["created_at"],
+        )
+
+    async def list_events(
+        self,
+        *,
+        run_id: UUID,
+        owner_id: str,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Return an owner's ordered execution timeline for one run."""
+        if not owner_id.strip():
+            raise ValueError("owner_id must not be empty")
+        if limit < 1 or limit > 500:
+            raise ValueError("limit must be between 1 and 500")
+        result = await self._connection.execute(
+            """
+            select id, event_type, state, payload, created_at
+            from agent_control.run_events
+            where run_id = %s and owner_id = %s
+            order by id asc
+            limit %s
+            """,
+            (run_id, owner_id, limit),
+        )
+        rows = await result.fetchall() if hasattr(result, "fetchall") else result
+        if rows is None:
+            return []
+        return [row if isinstance(row, dict) else dict(row) for row in rows]
+
     async def set_run_status(
         self,
         *,
