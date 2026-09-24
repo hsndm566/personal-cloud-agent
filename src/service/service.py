@@ -143,7 +143,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     row_factory=dict_row,
                     autocommit=True,
                 )
-                app.state.control_plane = ControlPlane(cast(Any, control_plane_connection))
+                app.state.control_plane = ControlPlane(
+                    cast(Any, control_plane_connection),
+                    queue_name=settings.CONTROL_PLANE_QUEUE_NAME,
+                )
                 logger.info("Durable run control plane connected")
 
             try:
