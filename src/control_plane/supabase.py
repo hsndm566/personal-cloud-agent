@@ -377,6 +377,29 @@ class ControlPlane:
             payload=payload,
         )
 
+    async def record_final_output(
+        self,
+        *,
+        run_id: UUID,
+        owner_id: str,
+        content: dict[str, Any],
+    ) -> None:
+        """Persist one idempotent final output per run."""
+        await self._connection.execute(
+            """
+            insert into agent_control.artifacts
+                (run_id, owner_id, kind, content)
+            values (%s, %s, 'final_output', %s)
+            on conflict (run_id) where kind = 'final_output'
+            do update set
+                owner_id = excluded.owner_id,
+                content = excluded.content,
+                uri = null,
+                created_at = now()
+            """,
+            (run_id, owner_id, Jsonb(content)),
+        )
+
     async def record_artifact(
         self,
         *,
