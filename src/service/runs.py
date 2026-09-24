@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from control_plane import ControlPlane, RunRecord
+from core import settings
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 
@@ -45,6 +46,7 @@ class RunResponse(BaseModel):
     thread_id: str
     project_id: UUID | None = None
     status: str
+    retry_count: int = 0
 
 
 class RunEventResponse(BaseModel):
@@ -99,6 +101,7 @@ def _run_response(record: RunRecord) -> RunResponse:
         thread_id=record.thread_id,
         project_id=record.project_id,
         status=record.status,
+        retry_count=record.retry_count,
     )
 
 
@@ -183,8 +186,12 @@ async def worker_health(request: Request) -> WorkerHealthResponse:
         if last_seen_at.tzinfo is None:
             last_seen_at = last_seen_at.replace(tzinfo=UTC)
         age_seconds = max(0.0, (reference - last_seen_at).total_seconds())
+    available = (
+        age_seconds is not None
+        and age_seconds <= settings.CONTROL_PLANE_HEARTBEAT_STALE_AFTER
+    )
     return WorkerHealthResponse(
-        available=True,
+        available=available,
         worker_id=str(heartbeat["worker_id"]),
         agent_id=str(heartbeat["agent_id"]),
         last_seen_at=last_seen_at,
