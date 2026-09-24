@@ -105,6 +105,10 @@ class ControlPlane:
             (self._queue_name, Jsonb({"run_id": str(record.id), "owner_id": record.owner_id})),
         )
 
+    @staticmethod
+    def _run_record(record: Any) -> RunRecord:
+        return self._run_record(record)
+
     async def get_run(self, run_id: UUID) -> RunRecord:
         result = await self._connection.execute(
             """
@@ -117,17 +121,7 @@ class ControlPlane:
         record = await result.fetchone() if hasattr(result, "fetchone") else result
         if record is None:
             raise KeyError(f"run {run_id} not found")
-        if not isinstance(record, dict):
-            record = dict(record)
-        return RunRecord(
-            id=record["id"],
-            owner_id=record["owner_id"],
-            goal=record["goal"],
-            thread_id=record["thread_id"],
-            project_id=record["project_id"],
-            status=record["status"],
-            created_at=record["created_at"],
-        )
+        return self._run_record(record)
 
     async def get_run_for_owner(self, run_id: UUID, owner_id: str) -> RunRecord:
         """Return a run only when it belongs to the requested owner."""
@@ -182,6 +176,136 @@ class ControlPlane:
         if rows is None:
             return []
         return [row if isinstance(row, dict) else dict(row) for row in rows]
+
+    async def list_runs(
+        self,
+        *,
+        owner_id: str,
+        limit: int = 50,
+        status: str | None = None,
+    ) -> list[RunRecord]:
+        """Return recent runs for one owner, newest first."""
+        if not owner_id.strip():
+            raise ValueError("owner_id must not be empty")
+        if limit < 1 or limit > 200:
+            raise ValueError("limit must be between 1 and 200")
+        if status is not None and status not in RUN_STATUSES:
+            raise ValueError(f"unsupported run status: {status}")
+        if status is None:
+            query = """
+                select id, owner_id, goal, thread_id, project_id, status, created_at
+                from agent_control.runs
+                where owner_id = %s
+                order by created_at desc
+                limit %s
+            """
+            params = (owner_id, limit)
+        else:
+            query = """
+                select id, owner_id, goal, thread_id, project_id, status, created_at
+                from agent_control.runs
+                where owner_id = %s and status = %s
+                order by created_at desc
+                limit %s
+            """
+            params = (owner_id, status, limit)
+        result = await self._connection.execute(query, params)
+        rows = await result.fetchall() if hasattr(result, "fetchall") else result
+        return [self._run_record(row) for row in (rows or [])]
+
+    async def list_artifacts(
+        self,
+        *,
+        run_id: UUID,
+        owner_id: str,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Return artifacts for one owned run."""
+        if not owner_id.strip():
+            raise ValueError("owner_id must not be empty")
+        if limit < 1 or limit > 500:
+            raise ValueError("limit must be between 1 and 500")
+        result = await self._connection.execute(
+            """
+            select id, kind, uri, content, created_at
+            from agent_control.artifacts
+            where run_id = %s and owner_id = %s
+            order by created_at asc, id asc
+            limit %s
+            """,
+            (run_id, owner_id, limit),
+        )
+        rows = await result.fetchall() if hasattr(result, "fetchall") else result
+        return [row if isinstance(row, dict) else dict(row) for row in (rows or [])]
+
+    async def cancel_run(self, *, run_id: UUID, owner_id: str) -> RunRecord:
+        """Cancel a non-running owned run without racing an active worker."""
+        run = await self.get_run_for_owner(run_id, owner_id)
+        if run.status == "cancelled":
+            return run
+        if run.status not in {"queued", "blocked", "interrupted"}:
+            raise RuntimeError(f"run cannot be cancelled from status {run.status}")
+        result = await self._connection.execute(
+            """
+            update agent_control.runs
+            set status = 'cancelled', completed_at = now(), updated_at = now()
+            where id = %s and owner_id = %s and status in ('queued','blocked','interrupted')
+            returning id, owner_id, goal, thread_id, project_id, status, created_at
+            """,
+            (run_id, owner_id),
+        )
+        row = await result.fetchone() if hasattr(result, "fetchone") else result
+        if row is None:
+            raise RuntimeError("run status changed before cancellation could be applied")
+        cancelled = self._run_record(row)
+        await self.append_event(
+            run_id=run_id,
+            owner_id=owner_id,
+            event_type="status_change",
+            state="cancelled",
+            payload={"reason": "user_cancelled"},
+        )
+        return cancelled
+
+    async def upsert_worker_heartbeat(
+        self,
+        *,
+        worker_id: str,
+        agent_id: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Record liveness for one deployed background worker."""
+        if not worker_id.strip():
+            raise ValueError("worker_id must not be empty")
+        if not agent_id.strip():
+            raise ValueError("agent_id must not be empty")
+        await self._connection.execute(
+            """
+            insert into agent_control.worker_heartbeats
+                (worker_id, agent_id, metadata, last_seen_at)
+            values (%s, %s, %s, now())
+            on conflict (worker_id) do update
+            set agent_id = excluded.agent_id,
+                metadata = excluded.metadata,
+                last_seen_at = now()
+            """,
+            (worker_id, agent_id, Jsonb(metadata or {})),
+        )
+
+    async def latest_worker_heartbeat(self) -> dict[str, Any] | None:
+        """Return the freshest worker heartbeat."""
+        result = await self._connection.execute(
+            """
+            select worker_id, agent_id, metadata, started_at, last_seen_at
+            from agent_control.worker_heartbeats
+            order by last_seen_at desc
+            limit 1
+            """
+        )
+        row = await result.fetchone() if hasattr(result, "fetchone") else result
+        if row is None:
+            return None
+        return row if isinstance(row, dict) else dict(row)
 
     async def set_run_status(
         self,
