@@ -90,7 +90,17 @@ class DurableRunWorker:
         if not rows:
             return False
         row = rows[0]
-        message = RunMessage.from_payload(int(row["msg_id"]), dict(row["message"]))
+        msg_id = int(row["msg_id"])
+        try:
+            message = RunMessage.from_payload(msg_id, dict(row["message"]))
+        except ValueError:
+            logger.exception(
+                "archiving malformed queue message msg_id=%s queue=%s",
+                msg_id,
+                self._queue_name,
+            )
+            await self._queue.archive(self._queue_name, msg_id)
+            return True
         lease_stop = asyncio.Event()
         lease_task = asyncio.create_task(
             self._renew_visibility(message.msg_id, lease_stop)
