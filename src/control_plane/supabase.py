@@ -150,17 +150,7 @@ class ControlPlane:
         record = await result.fetchone() if hasattr(result, "fetchone") else result
         if record is None:
             raise KeyError(f"run {run_id} not found")
-        if not isinstance(record, dict):
-            record = dict(record)
-        return RunRecord(
-            id=record["id"],
-            owner_id=record["owner_id"],
-            goal=record["goal"],
-            thread_id=record["thread_id"],
-            project_id=record["project_id"],
-            status=record["status"],
-            created_at=record["created_at"],
-        )
+        return self._run_record(record)
 
     async def list_events(
         self,
@@ -262,7 +252,7 @@ class ControlPlane:
             update agent_control.runs
             set status = 'cancelled', completed_at = now(), updated_at = now()
             where id = %s and owner_id = %s and status in ('queued','blocked','interrupted')
-            returning id, owner_id, goal, thread_id, project_id, status, created_at
+            returning id, owner_id, goal, thread_id, project_id, status, retry_count, created_at
             """,
             (run_id, owner_id),
         )
