@@ -31,7 +31,10 @@ async def main() -> None:
         ) as conn,
         initialized_worker_agent("deep-agent"),
     ):
-        control_plane = ControlPlane(cast(Any, conn))
+        control_plane = ControlPlane(
+            cast(Any, conn),
+            queue_name=settings.CONTROL_PLANE_QUEUE_NAME,
+        )
         queue_client = PgmqQueueClient(cast(Any, conn))
         worker = DurableRunWorker(
             queue=queue_client,
