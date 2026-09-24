@@ -317,6 +317,33 @@ class ControlPlane:
             return None
         return row if isinstance(row, dict) else dict(row)
 
+    async def mark_run_running(self, *, run_id: UUID, owner_id: str) -> bool:
+        """Atomically claim a queued/retry run unless it was cancelled or finalized."""
+        result = await self._connection.execute(
+            """
+            update agent_control.runs
+            set status = 'running',
+                started_at = coalesce(started_at, now()),
+                updated_at = now()
+            where id = %s
+              and owner_id = %s
+              and status in ('queued','running')
+            returning id
+            """,
+            (run_id, owner_id),
+        )
+        claimed = await result.fetchone() if hasattr(result, "fetchone") else result
+        if claimed is None:
+            return False
+        await self.append_event(
+            run_id=run_id,
+            owner_id=owner_id,
+            event_type="status_change",
+            state="running",
+            payload={"phase": "worker_claim"},
+        )
+        return True
+
     async def set_run_status(
         self,
         *,
