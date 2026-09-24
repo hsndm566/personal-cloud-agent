@@ -8,7 +8,6 @@ from typing import Annotated, Any, cast
 from uuid import UUID, uuid4
 
 import psycopg
-from psycopg.rows import dict_row
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from fastapi.routing import APIRoute
@@ -29,6 +28,7 @@ from langfuse.langchain import (
 from langgraph.types import Command, Interrupt
 from langsmith import Client as LangsmithClient
 from langsmith import uuid7
+from psycopg.rows import dict_row
 
 from agents import DEFAULT_AGENT, AgentGraph, get_agent, get_all_agent_info, load_agent
 from control_plane import ControlPlane
