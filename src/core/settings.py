@@ -149,7 +149,9 @@ class Settings(BaseSettings):
     CONTROL_PLANE_QUEUE_NAME: str = "agent_runs"
     CONTROL_PLANE_VISIBILITY_TIMEOUT: int = 60
     CONTROL_PLANE_POLL_INTERVAL: float = 1.0
+    CONTROL_PLANE_MAX_ATTEMPTS: int = 3
     CONTROL_PLANE_HEARTBEAT_INTERVAL: float = 15.0
+    CONTROL_PLANE_HEARTBEAT_STALE_AFTER: float = 45.0
     CONTROL_PLANE_WORKER_ID: str | None = None
 
     # MongoDB Configuration
