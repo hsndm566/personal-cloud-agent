@@ -21,7 +21,7 @@ def build_agent_run_handler(control_plane: ControlPlane, agent_id: str):
             raise PermissionError("queue message owner does not match the persisted run owner")
         # A crash after final status persistence but before queue archival must
         # not execute a completed run again when its lease expires.
-        if run.status in {"completed", "interrupted"}:
+        if run.status in {"completed", "interrupted", "cancelled"}:
             return
         await control_plane.set_run_status(run_id=run.id, owner_id=run.owner_id, status="running")
         await load_agent(agent_id)

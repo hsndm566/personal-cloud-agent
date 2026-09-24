@@ -21,7 +21,7 @@ async def test_queue_owner_must_match_persisted_owner():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("status", ["completed", "interrupted"])
+@pytest.mark.parametrize("status", ["completed", "interrupted", "cancelled"])
 async def test_finalized_run_is_not_executed_again(status, monkeypatch):
     run = RunRecord(uuid4(), "owner", "goal", "thread", status=status)
     plane = AsyncMock()

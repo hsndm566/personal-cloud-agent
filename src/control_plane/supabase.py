@@ -7,6 +7,10 @@ from uuid import UUID, uuid4
 
 from psycopg.types.json import Jsonb
 
+RUN_STATUSES = frozenset(
+    {"queued", "running", "blocked", "completed", "failed", "cancelled", "interrupted"}
+)
+
 
 class AsyncConnection(Protocol):
     async def execute(self, query: str, params: tuple[Any, ...] = ()) -> Any: ...
@@ -26,8 +30,11 @@ class RunRecord:
 class ControlPlane:
     """Persist run ownership and dispatch through one database connection."""
 
-    def __init__(self, connection: AsyncConnection):
+    def __init__(self, connection: AsyncConnection, *, queue_name: str = "agent_runs"):
+        if not queue_name.strip():
+            raise ValueError("queue_name must not be empty")
         self._connection = connection
+        self._queue_name = queue_name
 
     async def create_run(
         self,
@@ -44,6 +51,18 @@ class ControlPlane:
             raise ValueError("goal must not be empty")
         if not thread_id.strip():
             raise ValueError("thread_id must not be empty")
+        if project_id is not None:
+            result = await self._connection.execute(
+                """
+                select id
+                from agent_control.projects
+                where id = %s and owner_id = %s
+                """,
+                (project_id, owner_id),
+            )
+            owned_project = await result.fetchone() if hasattr(result, "fetchone") else result
+            if owned_project is None:
+                raise KeyError(f"project {project_id} not found")
 
         record = RunRecord(
             id=run_id or uuid4(),
@@ -83,7 +102,7 @@ class ControlPlane:
     async def enqueue_run(self, record: RunRecord) -> None:
         await self._connection.execute(
             "select pgmq.send(%s, %s)",
-            ("agent_runs", Jsonb({"run_id": str(record.id), "owner_id": record.owner_id})),
+            (self._queue_name, Jsonb({"run_id": str(record.id), "owner_id": record.owner_id})),
         )
 
     async def get_run(self, run_id: UUID) -> RunRecord:
@@ -110,6 +129,60 @@ class ControlPlane:
             created_at=record["created_at"],
         )
 
+    async def get_run_for_owner(self, run_id: UUID, owner_id: str) -> RunRecord:
+        """Return a run only when it belongs to the requested owner."""
+        if not owner_id.strip():
+            raise ValueError("owner_id must not be empty")
+        result = await self._connection.execute(
+            """
+            select id, owner_id, goal, thread_id, project_id, status, created_at
+            from agent_control.runs
+            where id = %s and owner_id = %s
+            """,
+            (run_id, owner_id),
+        )
+        record = await result.fetchone() if hasattr(result, "fetchone") else result
+        if record is None:
+            raise KeyError(f"run {run_id} not found")
+        if not isinstance(record, dict):
+            record = dict(record)
+        return RunRecord(
+            id=record["id"],
+            owner_id=record["owner_id"],
+            goal=record["goal"],
+            thread_id=record["thread_id"],
+            project_id=record["project_id"],
+            status=record["status"],
+            created_at=record["created_at"],
+        )
+
+    async def list_events(
+        self,
+        *,
+        run_id: UUID,
+        owner_id: str,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Return an owner's ordered execution timeline for one run."""
+        if not owner_id.strip():
+            raise ValueError("owner_id must not be empty")
+        if limit < 1 or limit > 500:
+            raise ValueError("limit must be between 1 and 500")
+        result = await self._connection.execute(
+            """
+            select id, event_type, state, payload, created_at
+            from agent_control.run_events
+            where run_id = %s and owner_id = %s
+            order by id asc
+            limit %s
+            """,
+            (run_id, owner_id, limit),
+        )
+        rows = await result.fetchall() if hasattr(result, "fetchall") else result
+        if rows is None:
+            return []
+        return [row if isinstance(row, dict) else dict(row) for row in rows]
+
     async def set_run_status(
         self,
         *,
@@ -118,10 +191,29 @@ class ControlPlane:
         status: str,
         payload: dict[str, Any] | None = None,
     ) -> None:
-        await self._connection.execute(
-            "update agent_control.runs set status = %s where id = %s and owner_id = %s",
-            (status, run_id, owner_id),
+        if status not in RUN_STATUSES:
+            raise ValueError(f"unsupported run status: {status}")
+        result = await self._connection.execute(
+            """
+            update agent_control.runs
+            set status = %s,
+                started_at = case
+                    when %s = 'running' and started_at is null then now()
+                    else started_at
+                end,
+                completed_at = case
+                    when %s in ('completed','failed','cancelled','interrupted') then now()
+                    else completed_at
+                end,
+                updated_at = now()
+            where id = %s and owner_id = %s
+            returning id
+            """,
+            (status, status, status, run_id, owner_id),
         )
+        updated = await result.fetchone() if hasattr(result, "fetchone") else result
+        if updated is None:
+            raise KeyError(f"run {run_id} not found")
         await self.append_event(
             run_id=run_id,
             owner_id=owner_id,
