@@ -6,10 +6,13 @@ available for a later worker to retry.
 """
 
 import asyncio
+import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
 from uuid import UUID
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,6 +33,10 @@ class QueueClient(Protocol):
     async def read(self, queue: str, visibility_timeout: int, quantity: int) -> list[dict[str, Any]]: ...
 
     async def archive(self, queue: str, msg_id: int) -> None: ...
+
+    async def extend_visibility(
+        self, queue: str, msg_id: int, visibility_timeout: int
+    ) -> None: ...
 
 
 RunHandler = Callable[[RunMessage], Awaitable[None]]
@@ -57,13 +64,42 @@ class DurableRunWorker:
         self._visibility_timeout = visibility_timeout
         self._poll_interval = poll_interval
 
+    async def _renew_visibility(self, msg_id: int, stop_event: asyncio.Event) -> None:
+        renew_after = max(0.25, self._visibility_timeout / 2)
+        while not stop_event.is_set():
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=renew_after)
+                return
+            except TimeoutError:
+                try:
+                    await self._queue.extend_visibility(
+                        self._queue_name,
+                        msg_id,
+                        self._visibility_timeout,
+                    )
+                except Exception:
+                    logger.exception(
+                        "failed to renew queue lease for msg_id=%s queue=%s",
+                        msg_id,
+                        self._queue_name,
+                    )
+                    return
+
     async def run_once(self) -> bool:
         rows = await self._queue.read(self._queue_name, self._visibility_timeout, 1)
         if not rows:
             return False
         row = rows[0]
         message = RunMessage.from_payload(int(row["msg_id"]), dict(row["message"]))
-        await self._handler(message)
+        lease_stop = asyncio.Event()
+        lease_task = asyncio.create_task(
+            self._renew_visibility(message.msg_id, lease_stop)
+        )
+        try:
+            await self._handler(message)
+        finally:
+            lease_stop.set()
+            await lease_task
         await self._queue.archive(self._queue_name, message.msg_id)
         return True
 
