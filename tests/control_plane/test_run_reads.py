@@ -307,3 +307,29 @@ async def test_worker_heartbeat_upsert_and_read():
     assert "worker_heartbeats" in connection.calls[0][0]
     assert "on conflict (worker_id)" in connection.calls[0][0]
     assert "order by last_seen_at desc" in connection.calls[1][0]
+
+
+@pytest.mark.asyncio
+async def test_mark_run_running_claims_queued_or_retry_run():
+    run_id = uuid4()
+    connection = ReadConnection([FakeCursor(one={"id": run_id}), None])
+    plane = ControlPlane(connection)
+
+    claimed = await plane.mark_run_running(run_id=run_id, owner_id="user_123")
+
+    assert claimed is True
+    query, params = connection.calls[0]
+    assert "status in ('queued','running')" in query
+    assert params == (run_id, "user_123")
+    assert "agent_control.run_events" in connection.calls[1][0]
+
+
+@pytest.mark.asyncio
+async def test_mark_run_running_loses_to_cancelled_state():
+    connection = ReadConnection([FakeCursor(one=None)])
+    plane = ControlPlane(connection)
+
+    claimed = await plane.mark_run_running(run_id=uuid4(), owner_id="user_123")
+
+    assert claimed is False
+    assert len(connection.calls) == 1
