@@ -117,7 +117,7 @@ async def test_create_run_rejects_project_owned_by_another_user():
 
 @pytest.mark.asyncio
 async def test_enqueue_uses_configured_queue_name():
-    connection = ReadConnection([None])
+    connection = ReadConnection([None, None])
     plane = ControlPlane(connection, queue_name="personal_agent_runs")
     run = await plane.create_run(
         owner_id="user_123",
