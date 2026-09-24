@@ -19,4 +19,8 @@ COPY src/schema/ ./schema/
 COPY src/worker/ ./worker/
 COPY skills/ ./skills/
 
+# Validate the standalone worker import path during image build without requiring real model keys.
+RUN python -m compileall -q /app \
+    && USE_FAKE_MODEL=true python -c "import worker.main"
+
 CMD ["python", "-m", "worker.main"]
