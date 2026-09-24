@@ -37,6 +37,11 @@ class FakeVisibilityQueue:
     async def archive(self, queue: str, msg_id: int) -> None:
         self._archived.add(msg_id)
 
+    async def extend_visibility(
+        self, queue: str, msg_id: int, visibility_timeout: int
+    ) -> None:
+        self._visible_at[msg_id] = time.monotonic() + visibility_timeout
+
     def expire_all_leases(self) -> None:
         for msg_id in self._visible_at:
             self._visible_at[msg_id] = 0.0

@@ -1,3 +1,4 @@
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
@@ -5,13 +6,19 @@ from control_plane import RunRecord
 from service import app
 
 
-def _owned_record(*, owner_id: str = "user_123", status: str = "queued") -> RunRecord:
+def _owned_record(
+    *,
+    owner_id: str = "user_123",
+    status: str = "queued",
+    retry_count: int = 0,
+) -> RunRecord:
     return RunRecord(
         id=uuid4(),
         owner_id=owner_id,
         goal="Inspect the repository",
         thread_id="thread_123",
         status=status,
+        retry_count=retry_count,
     )
 
 
@@ -137,3 +144,157 @@ def test_create_run_requires_configured_control_plane(test_client):
         response = test_client.post("/runs", json={"goal": "Inspect"})
 
     assert response.status_code == 503
+
+
+def test_list_runs_is_owner_scoped(test_client):
+    plane = AsyncMock()
+    record = _owned_record()
+    plane.list_runs.return_value = [record]
+    app.state.control_plane = plane
+
+    with patch("service.service.authenticate_request", return_value=record.owner_id):
+        response = test_client.get("/runs?limit=25&status=queued")
+
+    assert response.status_code == 200
+    assert response.json()[0]["id"] == str(record.id)
+    assert response.json()[0]["retry_count"] == 0
+    plane.list_runs.assert_awaited_once_with(
+        owner_id=record.owner_id,
+        limit=25,
+        status="queued",
+    )
+
+
+def test_run_artifacts_require_owned_run(test_client):
+    plane = AsyncMock()
+    record = _owned_record()
+    plane.get_run_for_owner.return_value = record
+    artifact_id = uuid4()
+    plane.list_artifacts.return_value = [
+        {
+            "id": artifact_id,
+            "kind": "final_output",
+            "uri": None,
+            "content": {"content": "done"},
+            "created_at": None,
+        }
+    ]
+    app.state.control_plane = plane
+
+    with patch("service.service.authenticate_request", return_value=record.owner_id):
+        response = test_client.get(f"/runs/{record.id}/artifacts")
+
+    assert response.status_code == 200
+    assert response.json()[0]["id"] == str(artifact_id)
+    plane.list_artifacts.assert_awaited_once_with(
+        run_id=record.id,
+        owner_id=record.owner_id,
+        limit=100,
+    )
+
+
+def test_cancel_queued_run(test_client):
+    plane = AsyncMock()
+    record = _owned_record(status="cancelled")
+    plane.cancel_run.return_value = record
+    app.state.control_plane = plane
+
+    with patch("service.service.authenticate_request", return_value=record.owner_id):
+        response = test_client.post(f"/runs/{record.id}/cancel")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "cancelled"
+    plane.cancel_run.assert_awaited_once_with(
+        run_id=record.id,
+        owner_id=record.owner_id,
+    )
+
+
+def test_cancel_running_run_returns_conflict(test_client):
+    plane = AsyncMock()
+    record = _owned_record(status="running")
+    plane.cancel_run.side_effect = RuntimeError("run cannot be cancelled from status running")
+    app.state.control_plane = plane
+
+    with patch("service.service.authenticate_request", return_value=record.owner_id):
+        response = test_client.post(f"/runs/{record.id}/cancel")
+
+    assert response.status_code == 409
+
+
+def test_worker_health_reports_freshest_heartbeat(test_client):
+    plane = AsyncMock()
+    now = datetime.now(UTC) - timedelta(seconds=3)
+    plane.latest_worker_heartbeat.return_value = {
+        "worker_id": "worker-1",
+        "agent_id": "deep-agent",
+        "metadata": {"pid": 123},
+        "started_at": now,
+        "last_seen_at": now,
+    }
+    app.state.control_plane = plane
+
+    with patch("service.service.authenticate_request", return_value="user_123"):
+        response = test_client.get("/runs/system/worker-health")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["available"] is True
+    assert body["worker_id"] == "worker-1"
+    assert body["agent_id"] == "deep-agent"
+    assert body["age_seconds"] >= 0
+
+
+def test_worker_health_reports_unavailable_without_heartbeat(test_client):
+    plane = AsyncMock()
+    plane.latest_worker_heartbeat.return_value = None
+    app.state.control_plane = plane
+
+    with patch("service.service.authenticate_request", return_value="user_123"):
+        response = test_client.get("/runs/system/worker-health")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "available": False,
+        "worker_id": None,
+        "agent_id": None,
+        "last_seen_at": None,
+        "age_seconds": None,
+    }
+
+
+def test_get_run_exposes_retry_count(test_client):
+    plane = AsyncMock()
+    record = _owned_record(status="running", retry_count=2)
+    plane.get_run_for_owner.return_value = record
+    app.state.control_plane = plane
+
+    with patch("service.service.authenticate_request", return_value=record.owner_id):
+        response = test_client.get(f"/runs/{record.id}")
+
+    assert response.status_code == 200
+    assert response.json()["retry_count"] == 2
+
+
+def test_worker_health_marks_stale_heartbeat_unavailable(test_client):
+    plane = AsyncMock()
+    stale = datetime.now(UTC) - timedelta(minutes=5)
+    plane.latest_worker_heartbeat.return_value = {
+        "worker_id": "worker-1",
+        "agent_id": "deep-agent",
+        "metadata": {},
+        "started_at": stale,
+        "last_seen_at": stale,
+    }
+    app.state.control_plane = plane
+
+    with (
+        patch("service.service.authenticate_request", return_value="user_123"),
+        patch("service.runs.settings") as mock_settings,
+    ):
+        mock_settings.CONTROL_PLANE_HEARTBEAT_STALE_AFTER = 45.0
+        response = test_client.get("/runs/system/worker-health")
+
+    assert response.status_code == 200
+    assert response.json()["available"] is False
+    assert response.json()["age_seconds"] > 45.0

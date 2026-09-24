@@ -23,3 +23,11 @@ class PgmqQueueClient:
 
     async def archive(self, queue: str, msg_id: int) -> None:
         await self._connection.execute("select pgmq.archive(%s, %s)", (queue, msg_id))
+
+    async def extend_visibility(
+        self, queue: str, msg_id: int, visibility_timeout: int
+    ) -> None:
+        await self._connection.execute(
+            "select msg_id from pgmq.set_vt(%s, %s, %s)",
+            (queue, msg_id, visibility_timeout),
+        )

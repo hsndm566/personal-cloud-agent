@@ -8,6 +8,7 @@ from langchain_core.runnables import RunnableConfig
 
 from agents import AgentGraph, get_agent, load_agent
 from control_plane.supabase import ControlPlane
+from core import settings
 from memory.personal_context import personal_context_message
 from worker.dispatch import RunMessage
 
@@ -19,11 +20,11 @@ def build_agent_run_handler(control_plane: ControlPlane, agent_id: str):
         run = await control_plane.get_run(message.run_id)
         if message.owner_id != run.owner_id:
             raise PermissionError("queue message owner does not match the persisted run owner")
-        # A crash after final status persistence but before queue archival must
-        # not execute a completed run again when its lease expires.
-        if run.status in {"completed", "interrupted", "cancelled"}:
+        # Claim atomically so a concurrent cancellation cannot be overwritten.
+        # A retry may re-claim a run left in "running" after a worker crash.
+        attempt = await control_plane.mark_run_running(run_id=run.id, owner_id=run.owner_id)
+        if not attempt:
             return
-        await control_plane.set_run_status(run_id=run.id, owner_id=run.owner_id, status="running")
         await load_agent(agent_id)
         agent: AgentGraph = get_agent(agent_id)
         config = RunnableConfig(
@@ -38,25 +39,46 @@ def build_agent_run_handler(control_plane: ControlPlane, agent_id: str):
                 config=config,
                 stream_mode=["updates", "values"],
             )
+            if not response_events:
+                raise ValueError("Agent returned no response events")
+            response_type, response = response_events[-1]
+            if "__interrupt__" in response:
+                status = "interrupted"
+                output_content = response["__interrupt__"][0].value
+            elif response_type == "values":
+                status = "completed"
+                output_content = response["messages"][-1].content
+            else:
+                raise ValueError(f"Unexpected response type from agent: {response_type}")
         except Exception as exc:
+            max_attempts = max(1, settings.CONTROL_PLANE_MAX_ATTEMPTS)
+            error_payload = {
+                "error_type": type(exc).__name__,
+                "agent_id": agent_id,
+                "attempt": attempt,
+                "max_attempts": max_attempts,
+            }
             await control_plane.append_event(
                 run_id=run.id,
                 owner_id=run.owner_id,
                 event_type="error",
                 state="running",
-                payload={"error": str(exc), "agent_id": agent_id},
+                payload=error_payload,
             )
+            if attempt >= max_attempts:
+                await control_plane.set_run_status(
+                    run_id=run.id,
+                    owner_id=run.owner_id,
+                    status="failed",
+                    payload={**error_payload, "reason": "max_attempts_exhausted"},
+                )
+                logger.warning(
+                    "run %s exhausted %s attempts and was marked failed",
+                    run.id,
+                    max_attempts,
+                )
+                return
             raise
-
-        response_type, response = response_events[-1]
-        if "__interrupt__" in response:
-            status = "interrupted"
-            output_content = response["__interrupt__"][0].value
-        elif response_type == "values":
-            status = "completed"
-            output_content = response["messages"][-1].content
-        else:
-            raise ValueError(f"Unexpected response type from agent: {response_type}")
         await control_plane.record_artifact(
             run_id=run.id,
             owner_id=run.owner_id,
