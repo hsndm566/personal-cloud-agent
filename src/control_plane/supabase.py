@@ -24,8 +24,8 @@ class RunRecord:
     thread_id: str
     project_id: UUID | None = None
     status: str = "queued"
-    retry_count: int = 0
     created_at: datetime | None = None
+    retry_count: int = 0
 
 
 class ControlPlane:
