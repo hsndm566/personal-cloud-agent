@@ -68,3 +68,18 @@ async def test_worker_renews_visibility_during_long_handler():
     assert await worker.run_once() is True
     assert queue.extended == [("agent_runs", 11, 1)]
     assert queue.archived == [11]
+
+
+@pytest.mark.asyncio
+async def test_worker_archives_malformed_message_without_calling_handler():
+    queue = FakeQueue([{"msg_id": 13, "message": {"owner_id": "user-4"}}])
+    received = []
+
+    async def handler(message):
+        received.append(message)
+
+    worker = DurableRunWorker(queue, handler)
+    assert await worker.run_once() is True
+    assert received == []
+    assert queue.archived == [13]
+    assert queue.extended == []
