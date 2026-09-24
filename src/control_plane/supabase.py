@@ -26,8 +26,11 @@ class RunRecord:
 class ControlPlane:
     """Persist run ownership and dispatch through one database connection."""
 
-    def __init__(self, connection: AsyncConnection):
+    def __init__(self, connection: AsyncConnection, *, queue_name: str = "agent_runs"):
+        if not queue_name.strip():
+            raise ValueError("queue_name must not be empty")
         self._connection = connection
+        self._queue_name = queue_name
 
     async def create_run(
         self,
@@ -44,6 +47,18 @@ class ControlPlane:
             raise ValueError("goal must not be empty")
         if not thread_id.strip():
             raise ValueError("thread_id must not be empty")
+        if project_id is not None:
+            result = await self._connection.execute(
+                """
+                select id
+                from agent_control.projects
+                where id = %s and owner_id = %s
+                """,
+                (project_id, owner_id),
+            )
+            owned_project = await result.fetchone() if hasattr(result, "fetchone") else result
+            if owned_project is None:
+                raise KeyError(f"project {project_id} not found")
 
         record = RunRecord(
             id=run_id or uuid4(),
@@ -83,7 +98,7 @@ class ControlPlane:
     async def enqueue_run(self, record: RunRecord) -> None:
         await self._connection.execute(
             "select pgmq.send(%s, %s)",
-            ("agent_runs", Jsonb({"run_id": str(record.id), "owner_id": record.owner_id})),
+            (self._queue_name, Jsonb({"run_id": str(record.id), "owner_id": record.owner_id})),
         )
 
     async def get_run(self, run_id: UUID) -> RunRecord:
@@ -172,10 +187,27 @@ class ControlPlane:
         status: str,
         payload: dict[str, Any] | None = None,
     ) -> None:
-        await self._connection.execute(
-            "update agent_control.runs set status = %s where id = %s and owner_id = %s",
-            (status, run_id, owner_id),
+        result = await self._connection.execute(
+            """
+            update agent_control.runs
+            set status = %s,
+                started_at = case
+                    when %s = 'running' and started_at is null then now()
+                    else started_at
+                end,
+                completed_at = case
+                    when %s in ('completed','failed','cancelled','interrupted') then now()
+                    else completed_at
+                end,
+                updated_at = now()
+            where id = %s and owner_id = %s
+            returning id
+            """,
+            (status, status, status, run_id, owner_id),
         )
+        updated = await result.fetchone() if hasattr(result, "fetchone") else result
+        if updated is None:
+            raise KeyError(f"run {run_id} not found")
         await self.append_event(
             run_id=run_id,
             owner_id=owner_id,
