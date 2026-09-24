@@ -4,9 +4,11 @@ import logging
 import warnings
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 from uuid import UUID, uuid4
 
+import psycopg
+from psycopg.rows import dict_row
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from fastapi.routing import APIRoute
@@ -29,6 +31,7 @@ from langsmith import Client as LangsmithClient
 from langsmith import uuid7
 
 from agents import DEFAULT_AGENT, AgentGraph, get_agent, get_all_agent_info, load_agent
+from control_plane import ControlPlane
 from core import settings
 from memory import initialize_database, initialize_store
 from memory.personal_context import personal_context_message
@@ -52,6 +55,7 @@ from service.auth import (
     require_matching_user_id,
 )
 from service.personal_context import router as personal_context_router
+from service.runs import router as runs_router
 from service.threads import list_user_threads
 from service.utils import (
     convert_message_content_to_string,
@@ -103,10 +107,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             if hasattr(store, "setup"):  # ignore: union-attr
                 await store.setup()
 
-            if not settings.AUTH_SECRET:
+            if not settings.AUTH_SECRET and not settings.CLERK_JWT_KEY:
                 logger.warning(
-                    "AUTH_SECRET is not configured — all API endpoints are unauthenticated. "
-                    "Set AUTH_SECRET in your environment to enable bearer token authentication."
+                    "No API authentication is configured. Set AUTH_SECRET for a shared secret "
+                    "or CLERK_JWT_KEY for per-user authentication."
                 )
             if settings.DATABASE_TYPE.value == "sqlite":
                 logger.warning(
@@ -129,11 +133,26 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 agent.checkpointer = saver
                 # Set store for long-term memory (cross-conversation knowledge)
                 agent.store = store
+
+            control_plane_connection = None
             app.state.personal_context_store = store
+            app.state.control_plane = None
+            if settings.CONTROL_PLANE_DATABASE_URL is not None:
+                control_plane_connection = await psycopg.AsyncConnection.connect(
+                    settings.CONTROL_PLANE_DATABASE_URL.get_secret_value(),
+                    row_factory=dict_row,
+                    autocommit=True,
+                )
+                app.state.control_plane = ControlPlane(cast(Any, control_plane_connection))
+                logger.info("Durable run control plane connected")
+
             try:
                 yield
             finally:
                 app.state.personal_context_store = None
+                app.state.control_plane = None
+                if control_plane_connection is not None:
+                    await control_plane_connection.close()
     except Exception as e:
         logger.error(f"Error during database/store/agents initialization: {e}")
         raise
@@ -144,6 +163,7 @@ router = APIRouter(dependencies=[Depends(verify_bearer)])
 # AG-UI protocol endpoints inherit the same bearer auth - see service/agui.py
 router.include_router(agui_router)
 router.include_router(personal_context_router)
+router.include_router(runs_router)
 
 
 @router.get("/info")
