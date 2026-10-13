@@ -139,6 +139,16 @@ def analyze(
     fractional_shares = math.floor(
         min(max_risk_usd / per_share_risk, max_spend_usd / entry) * 1000
     ) / 1000
+    # Entry-trigger size is only hypothetical; today's paid price can be higher.
+    # Recompute risk at the observed price. The Awaed order preview may differ,
+    # so the final quantity must be independently recalculated before a trade.
+    if quote and quote.price > stop:
+        quote_risk = quote.price - stop
+        quote_fraction = math.floor(
+            min(max_risk_usd / quote_risk, max_spend_usd / quote.price) * 1000
+        ) / 1000
+    else:
+        quote_fraction = 0.0
     out.update(
         {
             "score_0_to_5": score,
@@ -154,6 +164,9 @@ def analyze(
             "fractional_shares_within_risk": fractional_shares,
             "estimated_fractional_spend_sar": round(fractional_shares * entry * SAR_PER_USD, 2),
             "estimated_fractional_stop_risk_sar": round(fractional_shares * per_share_risk * SAR_PER_USD, 2),
+            "quote_risk_capped_fractional_shares": quote_fraction,
+            "quote_max_spend_sar": round(quote_fraction * quote.price * SAR_PER_USD, 2) if quote else 0,
+            "quote_estimated_stop_risk_sar": round(quote_fraction * max(quote.price - stop, 0) * SAR_PER_USD, 2) if quote else 0,
             "maximum_theoretical_stop_loss_sar": round(max_risk_usd * SAR_PER_USD, 2),
             "quote_fresh": quote_is_fresh(quote, now),
             "history_through": bars[-1].date,
@@ -167,8 +180,8 @@ def analyze(
         )
     elif not benchmark_ok:
         out.update(status="NO_TRADE", reason="Benchmark risk-on condition failed")
-    elif score != 5 or fractional_shares < 0.001:
-        out.update(status="WATCH", reason="All five checks and risk-capped fractional affordability required")
+    elif score != 5 or quote_fraction < 0.001:
+        out.update(status="WATCH", reason="All five checks and current-price risk-capped fractional affordability required")
     elif quote.price < entry:
         out.update(status="WATCH", reason="Technicals promising but breakout not confirmed")
     elif quote.price > entry * 1.015:
@@ -242,7 +255,7 @@ def run(config_path: Path, holdings_path: Path, report_folder: Path) -> dict:
         f"Available research capital: {budget} SAR; aspirational gain: {payload['aspirational_goal_sar']} SAR",
         "No stock order has been placed. Broker quote and risk verification required.",
         "",
-        "|Ticker|Status|Score / 5|Quote USD|Trigger USD|Whole shares|Fractional shares|Max spend SAR|Explanation|",
+        "|Ticker|Status|Score / 5|Quote USD|Trigger USD|Whole shares|Fractional shares at quote|Max spend SAR at quote|Explanation|",
         "|---|---|---|---|---|---|---|---|---|",
     ]
     for s in stocks:
@@ -250,7 +263,7 @@ def run(config_path: Path, holdings_path: Path, report_folder: Path) -> dict:
         lines.append(
             f"|{s['ticker']}|{s['status']}|{s.get('score_0_to_5', '—')}|{q.get('price', '—')}|"
             f"{s.get('technical_entry_above_usd', '—')}|{s.get('whole_shares_within_risk', '—')}|"
-            f"{s.get('fractional_shares_within_risk', '—')}|{s.get('estimated_fractional_spend_sar', '—')}|{s.get('reason', '')}|"
+            f"{s.get('quote_risk_capped_fractional_shares', '—')}|{s.get('quote_max_spend_sar', '—')}|{s.get('reason', '')}|"
         )
     lines += ["", "## Confirmed positions (private CSV only)", ""]
     for h in positions:
