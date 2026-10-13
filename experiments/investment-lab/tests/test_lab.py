@@ -61,5 +61,32 @@ class ScannerTests(unittest.TestCase):
             self.assertTrue((root / "reports/report.json").exists())
 
 
+    def test_fractional_expensive_share_sizing_and_entry_review(self):
+        bars = [
+            DailyBar(str(i), 149.8 + i * 0.3, 150.2 + i * 0.3,
+                     149.7 + i * 0.3, 150 + i * 0.3, 2_000_000)
+            for i in range(70)
+        ]
+        at_quote = Quote(171.5, self.now.isoformat(), "test")
+        result = analyze("UNH", bars, at_quote, bars, 409, 0.01, 100 / 409, self.now)
+        self.assertEqual(result["score_0_to_5"], 5)
+        self.assertEqual(result["whole_shares_within_risk"], 0)
+        self.assertGreater(result["fractional_shares_within_risk"], 0)
+        self.assertLessEqual(result["estimated_fractional_spend_sar"], 100.01)
+        self.assertLessEqual(result["estimated_fractional_stop_risk_sar"], 4.10)
+        self.assertEqual(result["status"], "ENTRY_REVIEW")
+
+    def test_delayed_breakout_chase_does_not_trigger_entry(self):
+        bars = [
+            DailyBar(str(i), 149.8 + i * 0.3, 150.2 + i * 0.3,
+                     149.7 + i * 0.3, 150 + i * 0.3, 2_000_000)
+            for i in range(70)
+        ]
+        quote = Quote(185, self.now.isoformat(), "test")
+        result = analyze("GS", bars, quote, bars, 409, 0.01, 100 / 409, self.now)
+        self.assertEqual(result["status"], "WATCH")
+        self.assertIn("chasing", result["reason"])
+
+
 if __name__ == "__main__":
     unittest.main()
