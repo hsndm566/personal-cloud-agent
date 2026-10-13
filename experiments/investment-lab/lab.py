@@ -134,6 +134,11 @@ def analyze(
     max_risk_usd = budget_sar * risk_pct / SAR_PER_USD
     max_spend_usd = budget_sar * max_position_pct / SAR_PER_USD
     shares = max(0, math.floor(min(max_risk_usd / per_share_risk, max_spend_usd / entry)))
+    # Awaed supports user-entered SAR amounts (fractional shares). Round DOWN
+    # to the nearest 0.001 share so this calculation cannot exceed the risk cap.
+    fractional_shares = math.floor(
+        min(max_risk_usd / per_share_risk, max_spend_usd / entry) * 1000
+    ) / 1000
     out.update(
         {
             "score_0_to_5": score,
@@ -146,6 +151,9 @@ def analyze(
             "reference_stop_usd": stop,
             "reference_2R_target_usd": round(entry + 2 * per_share_risk, 2),
             "whole_shares_within_risk": shares,
+            "fractional_shares_within_risk": fractional_shares,
+            "estimated_fractional_spend_sar": round(fractional_shares * entry * SAR_PER_USD, 2),
+            "estimated_fractional_stop_risk_sar": round(fractional_shares * per_share_risk * SAR_PER_USD, 2),
             "maximum_theoretical_stop_loss_sar": round(max_risk_usd * SAR_PER_USD, 2),
             "quote_fresh": quote_is_fresh(quote, now),
             "history_through": bars[-1].date,
@@ -159,8 +167,8 @@ def analyze(
         )
     elif not benchmark_ok:
         out.update(status="NO_TRADE", reason="Benchmark risk-on condition failed")
-    elif score != 5 or shares < 1:
-        out.update(status="WATCH", reason="All five checks and whole-share affordability required")
+    elif score != 5 or fractional_shares < 0.001:
+        out.update(status="WATCH", reason="All five checks and risk-capped fractional affordability required")
     elif quote.price < entry:
         out.update(status="WATCH", reason="Technicals promising but breakout not confirmed")
     else:
@@ -232,14 +240,15 @@ def run(config_path: Path, holdings_path: Path, report_folder: Path) -> dict:
         f"Available research capital: {budget} SAR; aspirational gain: {payload['aspirational_goal_sar']} SAR",
         "No stock order has been placed. Broker quote and risk verification required.",
         "",
-        "|Ticker|Status|Score / 5|Quote USD|Trigger USD|Max shares|Explanation|",
-        "|---|---|---|---|---|---|---|",
+        "|Ticker|Status|Score / 5|Quote USD|Trigger USD|Whole shares|Fractional shares|Max spend SAR|Explanation|",
+        "|---|---|---|---|---|---|---|---|---|",
     ]
     for s in stocks:
         q = s["quote"] or {}
         lines.append(
             f"|{s['ticker']}|{s['status']}|{s.get('score_0_to_5', '—')}|{q.get('price', '—')}|"
-            f"{s.get('technical_entry_above_usd', '—')}|{s.get('whole_shares_within_risk', '—')}|{s.get('reason', '')}|"
+            f"{s.get('technical_entry_above_usd', '—')}|{s.get('whole_shares_within_risk', '—')}|"
+            f"{s.get('fractional_shares_within_risk', '—')}|{s.get('estimated_fractional_spend_sar', '—')}|{s.get('reason', '')}|"
         )
     lines += ["", "## Confirmed positions (private CSV only)", ""]
     for h in positions:
