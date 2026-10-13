@@ -171,6 +171,8 @@ def analyze(
         out.update(status="WATCH", reason="All five checks and risk-capped fractional affordability required")
     elif quote.price < entry:
         out.update(status="WATCH", reason="Technicals promising but breakout not confirmed")
+    elif quote.price > entry * 1.015:
+        out.update(status="WATCH", reason="Delayed quote is over 1.5% above entry; avoid chasing")
     else:
         out.update(
             status="ENTRY_REVIEW",
