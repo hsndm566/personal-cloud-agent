@@ -46,3 +46,7 @@ After a PR is merged, the workflow runs hourly on US weekdays at 14–21 UTC (be
 This first phase is intentionally small and cost-conscious. Its Yahoo source can become unavailable or stale; this is handled by NO_TRADE instead of inventing prices. A full strategy needs timestamped historical prediction storage, out-of-sample testing, benchmark and slippage evaluation, and a licensed broker/data provider before considering live execution.
 
 **Verification status:** static scanner and offline tests supplied. Actual external price access, GitHub production schedule and Telegram delivery remain unverified until runs succeed and secrets are configured.
+
+## Live-entry amount check (October 2026)
+
+The maximum SAR spend in the report is recalculated from the **most recent indicative quote** and theoretical stop distance, not just the historic breakout trigger. This never overrides an actual Awaed broker preview. For a user-entered SAR purchase, recompute `(fill_price - stop) / fill_price * SAR_amount <= 4.09 SAR` before placing an order, excluding slippage and costs. Reject unverified or stale quote timestamps. A reference stop is not an exchange order and cannot guarantee a maximum realized loss.
