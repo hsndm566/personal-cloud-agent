@@ -117,8 +117,9 @@ def analyze(
         return {**out, "reason": "Insufficient valid historical candles"}
     closes = [x.close for x in bars]
     bc = [x.close for x in benchmark]
-    mean = lambda n: sum(closes[-n:]) / n
-    ma10, ma20, ma50 = mean(10), mean(20), mean(50)
+    ma10 = sum(closes[-10:]) / 10
+    ma20 = sum(closes[-20:]) / 20
+    ma50 = sum(closes[-50:]) / 50
     dollar_liquidity = sum(x.close * x.volume for x in bars[-20:]) / 20
     trend = closes[-1] > ma20 and ma10 > ma20 > ma50
     liquid = dollar_liquidity >= 5_000_000
