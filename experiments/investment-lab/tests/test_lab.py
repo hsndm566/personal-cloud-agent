@@ -74,6 +74,9 @@ class ScannerTests(unittest.TestCase):
         self.assertGreater(result["fractional_shares_within_risk"], 0)
         self.assertLessEqual(result["estimated_fractional_spend_sar"], 100.01)
         self.assertLessEqual(result["estimated_fractional_stop_risk_sar"], 4.10)
+        self.assertLessEqual(result["quote_estimated_stop_risk_sar"], 4.10)
+        self.assertLessEqual(result["quote_max_spend_sar"], 100.01)
+        self.assertGreater(result["quote_risk_capped_fractional_shares"], 0)
         self.assertEqual(result["status"], "ENTRY_REVIEW")
 
     def test_delayed_breakout_chase_does_not_trigger_entry(self):
