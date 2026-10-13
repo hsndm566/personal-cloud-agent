@@ -136,17 +136,17 @@ def analyze(
     shares = max(0, math.floor(min(max_risk_usd / per_share_risk, max_spend_usd / entry)))
     # Awaed supports user-entered SAR amounts (fractional shares). Round DOWN
     # to the nearest 0.001 share so this calculation cannot exceed the risk cap.
-    fractional_shares = math.floor(
-        min(max_risk_usd / per_share_risk, max_spend_usd / entry) * 1000
-    ) / 1000
+    fractional_shares = (
+        math.floor(min(max_risk_usd / per_share_risk, max_spend_usd / entry) * 1000) / 1000
+    )
     # Entry-trigger size is only hypothetical; today's paid price can be higher.
     # Recompute risk at the observed price. The Awaed order preview may differ,
     # so the final quantity must be independently recalculated before a trade.
     if quote and quote.price > stop:
         quote_risk = quote.price - stop
-        quote_fraction = math.floor(
-            min(max_risk_usd / quote_risk, max_spend_usd / quote.price) * 1000
-        ) / 1000
+        quote_fraction = (
+            math.floor(min(max_risk_usd / quote_risk, max_spend_usd / quote.price) * 1000) / 1000
+        )
     else:
         quote_fraction = 0.0
     out.update(
@@ -163,10 +163,18 @@ def analyze(
             "whole_shares_within_risk": shares,
             "fractional_shares_within_risk": fractional_shares,
             "estimated_fractional_spend_sar": round(fractional_shares * entry * SAR_PER_USD, 2),
-            "estimated_fractional_stop_risk_sar": round(fractional_shares * per_share_risk * SAR_PER_USD, 2),
+            "estimated_fractional_stop_risk_sar": round(
+                fractional_shares * per_share_risk * SAR_PER_USD, 2
+            ),
             "quote_risk_capped_fractional_shares": quote_fraction,
-            "quote_max_spend_sar": round(quote_fraction * quote.price * SAR_PER_USD, 2) if quote else 0,
-            "quote_estimated_stop_risk_sar": round(quote_fraction * max(quote.price - stop, 0) * SAR_PER_USD, 2) if quote else 0,
+            "quote_max_spend_sar": round(quote_fraction * quote.price * SAR_PER_USD, 2)
+            if quote
+            else 0,
+            "quote_estimated_stop_risk_sar": round(
+                quote_fraction * max(quote.price - stop, 0) * SAR_PER_USD, 2
+            )
+            if quote
+            else 0,
             "maximum_theoretical_stop_loss_sar": round(max_risk_usd * SAR_PER_USD, 2),
             "quote_fresh": quote_is_fresh(quote, now),
             "history_through": bars[-1].date,
@@ -181,7 +189,10 @@ def analyze(
     elif not benchmark_ok:
         out.update(status="NO_TRADE", reason="Benchmark risk-on condition failed")
     elif score != 5 or quote_fraction < 0.001:
-        out.update(status="WATCH", reason="All five checks and current-price risk-capped fractional affordability required")
+        out.update(
+            status="WATCH",
+            reason="All five checks and current-price risk-capped fractional affordability required",
+        )
     elif quote.price < entry:
         out.update(status="WATCH", reason="Technicals promising but breakout not confirmed")
     elif quote.price > entry * 1.015:

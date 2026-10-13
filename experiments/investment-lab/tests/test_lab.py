@@ -60,11 +60,11 @@ class ScannerTests(unittest.TestCase):
             self.assertEqual(data["stocks"][0]["status"], "NO_TRADE")
             self.assertTrue((root / "reports/report.json").exists())
 
-
     def test_fractional_expensive_share_sizing_and_entry_review(self):
         bars = [
-            DailyBar(str(i), 149.8 + i * 0.3, 150.2 + i * 0.3,
-                     149.7 + i * 0.3, 150 + i * 0.3, 2_000_000)
+            DailyBar(
+                str(i), 149.8 + i * 0.3, 150.2 + i * 0.3, 149.7 + i * 0.3, 150 + i * 0.3, 2_000_000
+            )
             for i in range(70)
         ]
         at_quote = Quote(171.5, self.now.isoformat(), "test")
@@ -81,8 +81,9 @@ class ScannerTests(unittest.TestCase):
 
     def test_delayed_breakout_chase_does_not_trigger_entry(self):
         bars = [
-            DailyBar(str(i), 149.8 + i * 0.3, 150.2 + i * 0.3,
-                     149.7 + i * 0.3, 150 + i * 0.3, 2_000_000)
+            DailyBar(
+                str(i), 149.8 + i * 0.3, 150.2 + i * 0.3, 149.7 + i * 0.3, 150 + i * 0.3, 2_000_000
+            )
             for i in range(70)
         ]
         quote = Quote(185, self.now.isoformat(), "test")
