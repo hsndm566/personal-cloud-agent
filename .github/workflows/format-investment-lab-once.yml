@@ -1,0 +1,29 @@
+name: One-shot format investment lab PR
+on:
+  push:
+    branches: [feature/investment-lab-catalyst-screen-oct13]
+    paths:
+      - .github/workflows/format-investment-lab-once.yml
+permissions:
+  contents: write
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/investment-lab-catalyst-screen-oct13
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install ruff==0.15.22
+      - name: Autoformat only new research scanner files, then self-remove
+        run: |
+          ruff format experiments/investment-lab/lab.py experiments/investment-lab/tests/test_lab.py
+          git rm .github/workflows/format-investment-lab-once.yml
+          git add experiments/investment-lab/lab.py experiments/investment-lab/tests/test_lab.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Format investment lab risk sizing with Ruff"
+          git push origin HEAD:refs/heads/feature/investment-lab-catalyst-screen-oct13
