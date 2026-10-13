@@ -5,8 +5,8 @@ This is a **research-only, isolated** module. It does not execute or authorize t
 ## Objective
 - Research capital: 409 SAR = about USD 109.07 at the reference exchange rate of 3.75 SAR/USD.
 - Aspirational same-day gain: 50 SAR (~12.22% of the full balance). Not a realistic daily expectation.
-- Theoretical risk per position: at most 1% of capital (4.09 SAR) before gaps/slippage; at most 50% of capital allocated to a candidate. Execution risk may exceed these amounts.
-- Default watchlist: SPY, HL, XLF, AAPL, SOFI. All entries start with zero verified positions.
+- Theoretical risk per position: at most 1% of capital (4.09 SAR) before gaps/slippage; at most 100 SAR of capital allocated to the first candidate. Execution risk may exceed these amounts.
+- Watchlist: SPY, HL, XLF, AAPL, SOFI; October 13 candidates: UNH (earnings beat), GS (bank earnings), CRM (relative-strength candidate). These are research candidates, not recommended trades. All entries start with zero verified positions.
 
 ## Run
 
@@ -20,9 +20,9 @@ Reports are written to experiments/investment-lab/reports/report.json, report.md
 
 ## Core checks
 
-The scanner reads 6 months of Yahoo historical candles and recent 5-minute bars, both **unofficial/delayed**. It excludes today's possibly incomplete daily candle. It rejects missing/older-than-20-minute quotes and nonregular US market hours. It checks benchmark SPY above its 50-session average, positive 10/20/50-session moving-average alignment, liquidity, five-day momentum and whether a stock looks overextended.
+The scanner reads 6 months of Yahoo historical candles and recent 5-minute bars, both **unofficial/delayed**. It excludes today's possibly incomplete daily candle. It rejects missing/older-than-20-minute quotes and nonregular US market hours. It checks benchmark SPY above its 50-session average, positive 10/20/50-session moving-average alignment, liquidity, five-day momentum and whether a stock looks overextended. For Awaed, assume the *displayed* chart may lag by about 15 minutes: observations are research-grade, not executable quotes. Never chase a quote over 1.5% above a calculated trigger.
 
-The only special state is **ENTRY_REVIEW**: a technical setup whose trigger may have been reached. It requires independent confirmation of broker bid/ask, spread, order size, and actual risk. It never means automatically BUY. It can emit STOP_REVIEW only for user-confirmed local positions. No short selling, leverage, options or market orders are supported.
+The only special state is **ENTRY_REVIEW**: a technical setup whose trigger may have been reached. It requires independent confirmation of broker bid/ask, spread, order size, and actual risk. It never means automatically BUY. It can emit STOP_REVIEW only for user-confirmed local positions. The engine now calculates both whole-share and rounded-down fractional-share sizing, needed because Awaed accepts SAR amounts; it still requires broker preview and a real fill before tracking P/L. No short selling, leverage, options or market orders are supported.
 
 ## Private positions
 
@@ -46,3 +46,7 @@ After a PR is merged, the workflow runs hourly on US weekdays at 14–21 UTC (be
 This first phase is intentionally small and cost-conscious. Its Yahoo source can become unavailable or stale; this is handled by NO_TRADE instead of inventing prices. A full strategy needs timestamped historical prediction storage, out-of-sample testing, benchmark and slippage evaluation, and a licensed broker/data provider before considering live execution.
 
 **Verification status:** static scanner and offline tests supplied. Actual external price access, GitHub production schedule and Telegram delivery remain unverified until runs succeed and secrets are configured.
+
+## Live-entry amount check (October 2026)
+
+The maximum SAR spend in the report is recalculated from the **most recent indicative quote** and theoretical stop distance, not just the historic breakout trigger. This never overrides an actual Awaed broker preview. For a user-entered SAR purchase, recompute `(fill_price - stop) / fill_price * SAR_amount <= 4.09 SAR` before placing an order, excluding slippage and costs. Reject unverified or stale quote timestamps. A reference stop is not an exchange order and cannot guarantee a maximum realized loss.
