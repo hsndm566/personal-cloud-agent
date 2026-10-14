@@ -96,8 +96,10 @@ would create a negative position are rejected. Accounting uses weighted-average 
 includes fees, and never infers realized gains from an unsold position.
 
 An initial historical snapshot requires user reconciliation and secure provisioning.
-Cash reconciliation, historical basis correction UI, broker-preview import, screenshot
-extraction and iPhone Shortcut integration are not enabled in this release.
+Explicit cash snapshots are supported; estimated and confirmed amounts are separate.
+Snapshots expire after 24 hours and a later confirmed fill or correction disables sizing
+until another broker reconciliation. Historical basis correction UI, broker-preview
+import, screenshot extraction and iPhone Shortcut integration are not enabled.
 
 ## Notifications and scheduling
 
@@ -123,9 +125,22 @@ The separate ChatGPT monitoring automation is not modified.
 
 ## Research and evaluation limits
 
-Perplexity API integration and budget enforcement are not yet enabled. The zero-dollar
-fallback currently marks news context unavailable, blocking entries. No recent catalyst
-claims are invented. A source-backed manual research input contract exists in the gate.
+The Perplexity adapter uses the documented `POST /v1/agent` request with web and finance
+search, four tool steps and an output-token bound. It is disabled by default: configure
+`PERPLEXITY_API_KEY`, `PERPLEXITY_MODEL`, `PERPLEXITY_MONTHLY_LIMIT_USD`, and a verified
+`PERPLEXITY_REQUEST_BOUND_USD` only after confirming a provider-side billing cap, then set
+`PERPLEXITY_BILLING_CAP_VERIFIED=true`. Local budget reservations serialize concurrent calls,
+limit calls to three per UTC day, and retain reservations after ambiguous failures.
+A response exceeding the verified per-request bound disables subsequent calls. Local
+accounting cannot substitute for a provider-enforced billing cap.
+
+Authenticated `/api/research/gather` accepts one to five watchlist tickers. It stores
+sources, reported publication dates, retrieval times and cited claims as **drafts**.
+It never turns model-written dates or primary-source claims into independent verification.
+`/api/research/review` accepts a source-backed review following the gate contract, after
+an operator independently checks publication times and primary sources. The zero-dollar
+fallback marks news unavailable and blocks entry review. No recent catalysts are invented.
+The live Perplexity request and billing entitlement remain unverified without credentials.
 
 Walk-forward backtesting and statistical prediction calibration are not implemented.
 No historical performance or accuracy claim is made. `backtesting.py` is not imported

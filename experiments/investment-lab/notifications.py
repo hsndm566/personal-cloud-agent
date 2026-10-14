@@ -4,9 +4,9 @@ import hashlib
 import json
 import urllib.error
 import urllib.request
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
-from market import RIYADH
+from market import RIYADH, timestamp
 from psycopg.types.json import Jsonb
 
 
@@ -37,11 +37,22 @@ class Notifier:
         self.transport = transport or urllib.request.urlopen
         self.quiet_hours = quiet_hours
 
-    def enqueue(self, identifier, category, text):
+    def enqueue(self, identifier, category, text, expires_at=None):
         with self.store.transaction() as c:
             c.execute(
                 "INSERT INTO lab_notifications(owner,signal_id,category,payload) VALUES (%s,%s,%s,%s) ON CONFLICT DO NOTHING",
-                (self.store.owner, identifier, category, Jsonb({"text": text})),
+                (
+                    self.store.owner,
+                    identifier,
+                    category,
+                    Jsonb(
+                        {
+                            "text": text,
+                            "expires_at_utc": expires_at
+                            or (datetime.now(UTC) + timedelta(hours=24)).isoformat(),
+                        }
+                    ),
+                ),
             )
 
     def flush(self, now=None):
@@ -64,6 +75,22 @@ class Notifier:
                 ).fetchone()
                 if not row:
                     break
+                expiry = row["payload"].get("expires_at_utc")
+                if expiry and timestamp(expiry) < now:
+                    c.execute(
+                        "UPDATE lab_notifications SET state='expired' WHERE owner=%s AND signal_id=%s",
+                        (self.store.owner, row["signal_id"]),
+                    )
+                    self.store.append(
+                        c,
+                        "NOTIFICATION_ATTEMPT",
+                        {
+                            "signal_id": row["signal_id"],
+                            "state": "expired",
+                            "at_utc": now.isoformat(),
+                        },
+                    )
+                    continue
                 c.execute(
                     "UPDATE lab_notifications SET state='sending',attempts=attempts+1 WHERE owner=%s AND signal_id=%s",
                     (self.store.owner, row["signal_id"]),

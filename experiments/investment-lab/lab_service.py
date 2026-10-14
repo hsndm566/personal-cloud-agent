@@ -13,14 +13,15 @@ import secrets
 import time
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from engine import report_state
+from account import account_state, position_risks, validate_snapshot
+from engine import report_state, research_current
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from ledger import portfolio
-from market import RIYADH, ExchangeCalendar
+from market import RIYADH, ExchangeCalendar, timestamp
 from notifications import Notifier, format_alert, signal_id
 from production import runtime_inputs, scan
 from store import Store
@@ -58,12 +59,33 @@ def create_app(store=None, access_key=None, session_key=None, origin=None, sched
                 config = json.loads((Path(__file__).parent / "data/config.json").read_text())
                 config["exchanges"] = json.loads(os.getenv("INVESTMENT_EXCHANGES", "{}"))
                 providers, entitlements = runtime_inputs()
-                # Until reconciliation is implemented, account balances never enter entry sizing.
+                events = store.events()
+                account = account_state(events, now)
+                reviews = {}
+                for event in events:
+                    if event["kind"] == "RESEARCH_REVIEW":
+                        for ticker in event["payload"]["tickers"]:
+                            reviews[ticker] = event["payload"]
                 result = scan(
-                    config, production=True, providers=providers, entitlements=entitlements
+                    config,
+                    production=True,
+                    providers=providers,
+                    entitlements=entitlements,
+                    capital=account["capital"],
+                    research=reviews,
                 )
-                result["positions"] = portfolio(store.events())
+                quotes = {q["ticker"]: q for q in result["observations"] if q["eligible"]}
+                positions = portfolio(events, {t: q["price"] for t, q in quotes.items()})
+                levels = store.latest("RISK_REFERENCES") or {}
+                result["positions"] = position_risks(positions, quotes, levels)
+                result["account"] = {k: v for k, v in account.items() if k != "capital"}
                 store.save("REPORT", result)
+                for position in result["positions"]:
+                    if position["status"] == "RISK REVIEW":
+                        identifier = signal_id("risk", position["ticker"], now.date().isoformat())
+                        notifier.enqueue(
+                            identifier, "risk:" + position["ticker"], format_alert("risk", now)
+                        )
                 for candidate in result["stocks"]:
                     if candidate["status"] == "CONDITIONAL ENTRY REVIEW":
                         identifier = signal_id(
@@ -71,7 +93,15 @@ def create_app(store=None, access_key=None, session_key=None, origin=None, sched
                             candidate["ticker"],
                             str(candidate["technical_entry_above_usd"]) + now.date().isoformat(),
                         )
-                        notifier.enqueue(identifier, "entry", format_alert("entry", now, candidate))
+                        notifier.enqueue(
+                            identifier,
+                            "entry:" + candidate["ticker"],
+                            format_alert("entry", now, candidate),
+                            (
+                                timestamp(candidate["quote"]["observed_at_utc"])
+                                + timedelta(minutes=20)
+                            ).isoformat(),
+                        )
                         store.save(
                             "PREDICTION",
                             {
@@ -130,12 +160,14 @@ def create_app(store=None, access_key=None, session_key=None, origin=None, sched
             try:
                 now, calendar = datetime.now(UTC), ExchangeCalendar()
                 latest = store.latest("REPORT")
-                if calendar.session(now) == "regular" and report_state(latest, now) != "FRESH":
-                    await asyncio.to_thread(private_scan)
-                elif calendar.session(now) == "regular" and latest:
-                    from market import timestamp
-
-                    if (now - timestamp(latest["completed_at_utc"])).total_seconds() >= 3600:
+                if calendar.session(now) == "regular":
+                    interval = 3600 if latest and latest.get("run_status") == "completed" else 300
+                    age = (
+                        (now - timestamp(latest["completed_at_utc"])).total_seconds()
+                        if latest
+                        else interval
+                    )
+                    if age >= interval:
                         await asyncio.to_thread(private_scan)
                 await asyncio.to_thread(notifier.flush)
                 store.save("SCHEDULER_HEARTBEAT", {"at_utc": now.isoformat()})
@@ -279,16 +311,33 @@ def create_app(store=None, access_key=None, session_key=None, origin=None, sched
                 if state != "FRESH" or not fresh_quote:
                     stock["status"] = "WAIT"
                     stock["allocation"] = None
+        account = account_state(events, now)
+        marks = {}
+        for quote in (latest or {}).get("observations", []):
+            try:
+                if (
+                    quote.get("eligible")
+                    and 0 <= (now - timestamp(quote["observed_at_utc"])).total_seconds() <= 1200
+                ):
+                    marks[quote["ticker"]] = quote["price"]
+            except (KeyError, TypeError, ValueError):
+                pass
         return {
             "system_health": state,
             "report": latest,
             "session": ExchangeCalendar().session(now),
             "as_of_riyadh": now.astimezone(RIYADH).isoformat(),
-            "positions": portfolio(events),
-            "confirmed_cash_sar": None,
-            "estimated_cash_sar": None,
-            "buying_power_sar": None,
-            "reconciliation": "Required; no historical snapshot seeded",
+            "positions": portfolio(events, marks),
+            "confirmed_cash_sar": account["confirmed_cash_sar"],
+            "estimated_cash_sar": account["estimated_cash_sar"],
+            "buying_power_sar": account["buying_power_sar"],
+            "reconciliation": "Current user-confirmed snapshot"
+            if account["reconciled"]
+            else "Required; sizing disabled",
+            "provider_status": "eligible"
+            if latest and any(q.get("eligible") for q in latest.get("observations", []))
+            else "unavailable",
+            "independent_freshness_check": store.latest("INDEPENDENT_FRESHNESS_CHECK"),
             "predictions": [e for e in events if e["kind"] == "PREDICTION"][-20:],
             "recent_alerts": [e for e in events if e["kind"] == "NOTIFICATION_ATTEMPT"][-20:],
             "submissions": [
@@ -302,6 +351,52 @@ def create_app(store=None, access_key=None, session_key=None, origin=None, sched
             ][-20:],
             "scheduler_heartbeat": store.latest("SCHEDULER_HEARTBEAT"),
         }
+
+    @app.post("/api/account-snapshot")
+    async def account_snapshot(request: Request):
+        data = validate_snapshot(await request.json(), datetime.now(UTC))
+        return {"id": store.save("ACCOUNT_SNAPSHOT", data), "status": "recorded"}
+
+    @app.post("/api/research/review")
+    async def review_research(request: Request):
+        data = await request.json()
+        now = datetime.now(UTC)
+        if not data.get("tickers") or not all(
+            research_current(data, t, now) for t in data["tickers"]
+        ):
+            raise ValueError("Current independently reviewed primary sources and claims required")
+        return {"id": store.save("RESEARCH_REVIEW", data)}
+
+    @app.post("/api/research/gather")
+    async def gather_research(request: Request):
+        from research import ResearchClient
+
+        data = await request.json()
+        config = json.loads((Path(__file__).parent / "data/config.json").read_text())
+        tickers = data.get("tickers", [])
+        if not tickers or len(tickers) > 5 or any(t not in config["watchlist"] for t in tickers):
+            raise ValueError("Select one to five watchlist tickers")
+        client = ResearchClient(
+            store,
+            os.getenv("PERPLEXITY_API_KEY", ""),
+            os.getenv("PERPLEXITY_MODEL", ""),
+            os.getenv("PERPLEXITY_MONTHLY_LIMIT_USD", "0"),
+            os.getenv("PERPLEXITY_REQUEST_BOUND_USD"),
+            os.getenv("PERPLEXITY_BILLING_CAP_VERIFIED") == "true",
+        )
+        return await asyncio.to_thread(client.gather, tickers)
+
+    @app.post("/api/risk-references")
+    async def risk_references(request: Request):
+        from risk import number
+
+        data = await request.json()
+        if not isinstance(data, dict) or len(data) > 30:
+            raise ValueError("Invalid reference levels")
+        for ticker, level in data.items():
+            if not ticker.isalnum() or number(level) <= 0:
+                raise ValueError("Positive technical reference required")
+        return {"id": store.save("RISK_REFERENCES", data), "broker_stop_order_confirmed": False}
 
     @app.post("/api/scan")
     def run_scan():
