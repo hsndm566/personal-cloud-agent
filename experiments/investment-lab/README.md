@@ -150,8 +150,9 @@ an operator independently checks publication times and primary sources. The zero
 fallback marks news unavailable and blocks entry review. No recent catalysts are invented.
 The live Perplexity request and billing entitlement remain unverified without credentials.
 
-Walk-forward backtesting and statistical prediction calibration are not implemented.
-No historical performance or accuracy claim is made. `backtesting.py` is not imported
+A fixed-rule walk-forward research evaluator is available below; prospective
+statistical prediction calibration is not yet established. No verified live
+accuracy claim is made. `backtesting.py` is not imported
 or copied: its AGPL-3.0 obligations require review, and subprocess isolation does not
 remove those obligations. Prediction events are logged before subsequent outcomes;
 automatic outcome evaluation remains pending.
@@ -162,3 +163,41 @@ Run the public tests above. Private PostgreSQL acceptance tests additionally exe
 RLS, append-only grants, concurrent deduplication, ledger state transitions, authentication,
 CSRF rejection, synthetic Telegram transport submission and retry behavior. A mocked
 transport test does not establish a real Telegram delivery or provider entitlement.
+
+## Prediction evaluation
+
+Notifications are optional. Prediction quality must be measured before making
+claims about accuracy. Run the independent evaluation module:
+
+```sh
+python experiments/investment-lab/evaluation.py \
+  --end 2026-10-14 --cache /private/research-inputs \
+  --output /private/evaluation.json
+```
+
+The exclusive end date excludes the unfinished session. Retain the input files
+and their SHA-256 hashes to reproduce results from the same adjusted Yahoo
+snapshot. Network downloads are research-only and never supply live quotes.
+
+The frozen hypothesis buys only a qualifying next-session open after five-factor
+screening and a breakout, then exits at the fifth session close. It rejects opens
+more than 1.5% above the trigger. This is a separately specified historical
+experiment, not a reconstruction of the full production entry process. It does
+not infer stop or target fills from daily bars. Expanding historical prefixes feed
+fixed rules; sequential 126-session held-out folds permit no parameter tuning or
+positions crossing fold boundaries. Warm-up observations never become outcomes.
+
+Reports include sample counts, win rate and Wilson intervals, profit factor,
+average wins/losses, expectancy, daily marked-to-market maximum drawdown, SPY and
+zero-yield cash comparisons, and 5/15/30 basis-point costs on each side. These costs
+combine proportional fees, half-spread and slippage; actual fixed brokerage fees
+may be more material for small positions. SAR/USD is assumed constant at 3.75,
+not fetched as a live FX quote. Each symbol is a separate normalized portfolio;
+returns must not be summed into an account performance figure.
+
+Present-day watchlist selection, revised adjusted data, historical researcher
+selection and dependence between trials limit interpretation. Wilson intervals
+assume independent trials. News, quote entitlement, reconciled cash and broker
+preview gates cannot be reconstructed by this experiment. Historical simulation
+is not prospective verified predictive accuracy. No automatic entry authorization
+or guaranteed target follows from a positive result.
