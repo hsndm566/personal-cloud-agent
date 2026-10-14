@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from evaluation import evaluate, metrics
+from evaluation import evaluate, metrics, validate
 from lab import DailyBar
 
 
@@ -80,3 +80,10 @@ class EvaluationTests(unittest.TestCase):
             [s for s in before["signals"] if s["signal_date"] < cutoff],
             [s for s in after["signals"] if s["signal_date"] < cutoff],
         )
+
+
+class CandleValidationTests(unittest.TestCase):
+    def test_roundoff_is_tolerated_but_material_errors_are_not(self):
+        validate([DailyBar("2020-01-01", 100, 100 - 1e-13, 99, 100, 1)])
+        with self.assertRaises(ValueError):
+            validate([DailyBar("2020-01-01", 100, 99.99, 99, 100, 1)])

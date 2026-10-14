@@ -19,7 +19,10 @@ def validate(bars):
         if (
             not all(math.isfinite(v) for v in (b.open, b.high, b.low, b.close, b.volume))
             or b.volume < 0
-            or not 0 < b.low <= min(b.open, b.close) <= max(b.open, b.close) <= b.high
+            or min(b.low, b.open, b.close, b.high) <= 0
+            or b.low > min(b.open, b.close) + 1e-10 * max(b.open, b.close)
+            or b.high < max(b.open, b.close) - 1e-10 * max(b.open, b.close)
+            or b.low > b.high
         ):
             raise ValueError("Invalid OHLCV")
 
