@@ -4,6 +4,7 @@ import sys
 import unittest
 import urllib.error
 from datetime import UTC, datetime, timedelta
+from importlib.util import find_spec
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -53,6 +54,9 @@ def research():
     }
 
 
+@unittest.skipUnless(
+    find_spec("exchange_calendars"), "Run the dedicated Investment Lab dependency environment"
+)
 class MarketTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -173,6 +177,9 @@ class MarketTests(unittest.TestCase):
         self.assertEqual(failures[0]["code"], "price_discrepancy_over_1_percent")
 
 
+@unittest.skipUnless(
+    find_spec("exchange_calendars"), "Run the dedicated Investment Lab dependency environment"
+)
 class GateTests(unittest.TestCase):
     def setUp(self):
         self.calendar = ExchangeCalendar()

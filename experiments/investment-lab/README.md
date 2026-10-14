@@ -37,7 +37,7 @@ To run the private service after private migrations and credentials are provisio
 
 ```sh
 cd experiments/investment-lab
-uvicorn service:app --host 0.0.0.0 --port 8000 --no-access-log
+uvicorn lab_service:app --host 0.0.0.0 --port 8000 --no-access-log
 ```
 
 Required private runtime settings: `DATABASE_URL` (least-privilege application role),

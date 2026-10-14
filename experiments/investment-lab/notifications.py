@@ -46,6 +46,8 @@ class Notifier:
 
     def flush(self, now=None):
         now = now or datetime.now(UTC)
+        if not self.token or not self.chat:
+            return "not_configured"
         start, end = self.quiet_hours
         hour = now.astimezone(RIYADH).hour
         if (start < end and start <= hour < end) or (start > end and (hour >= start or hour < end)):

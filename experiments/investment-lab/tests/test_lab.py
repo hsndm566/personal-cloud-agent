@@ -3,6 +3,7 @@ import sys
 import tempfile
 import unittest
 from datetime import UTC, datetime, timedelta
+from importlib.util import find_spec
 from pathlib import Path
 from unittest.mock import patch
 
@@ -40,6 +41,9 @@ class ScannerTests(unittest.TestCase):
         )
         self.assertLessEqual(shares * result["technical_entry_above_usd"] * 3.75, 204.51)
 
+    @unittest.skipUnless(
+        find_spec("exchange_calendars"), "Run the dedicated Investment Lab dependency environment"
+    )
     @patch("production.fetch_yahoo", return_value=([], None))
     def test_empty_private_holdings_do_not_get_invented(self, _):
         with tempfile.TemporaryDirectory() as directory:
