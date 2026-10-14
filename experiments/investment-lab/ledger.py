@@ -49,10 +49,21 @@ def fingerprint(fill):
 def portfolio(events, marks=None):
     marks = marks or {}
     reversed_ids = {e["payload"]["reverses"] for e in events if e["kind"] == "REVERSAL"}
+    basis_corrections = {
+        e["payload"]["opening_id"]: e["payload"]["total_cost_usd"]
+        for e in events
+        if e["kind"] == "BASIS_CORRECTION"
+    }
     active = [
         e for e in events if e["kind"] in ("CONFIRMED", "OPENING") and e["id"] not in reversed_ids
     ]
-    active.sort(key=lambda e: (e["payload"]["executed_at_utc"], e["id"]))
+    active.sort(
+        key=lambda e: (
+            e["payload"].get("as_of_utc", e["payload"].get("executed_at_utc")),
+            str(e.get("created_at", "")),
+            e["id"],
+        )
+    )
     positions = {}
     for event in active:
         fill = event["payload"]
@@ -68,7 +79,7 @@ def portfolio(events, marks=None):
         quantity = number(fill["quantity"])
         if event["kind"] == "OPENING":
             p["quantity"] += quantity
-            basis = fill.get("total_cost_usd")
+            basis = basis_corrections.get(event["id"], fill.get("total_cost_usd"))
             p["cost"] = (
                 p["cost"] + number(basis) if p["cost"] is not None and basis is not None else None
             )

@@ -293,6 +293,12 @@ def create_app(store=None, access_key=None, session_key=None, origin=None, sched
         events = store.events()
         latest = store.latest("REPORT")
         state = report_state(latest, now)
+        account = account_state(events, now)
+        reviews = {}
+        for event in events:
+            if event["kind"] == "RESEARCH_REVIEW":
+                for ticker in event["payload"]["tickers"]:
+                    reviews[ticker] = event["payload"]
         # Recompute age at read time; a cached entry must not retain its review status.
         if latest:
             for stock in latest.get("stocks", []):
@@ -308,10 +314,14 @@ def create_app(store=None, access_key=None, session_key=None, origin=None, sched
                     )
                 except (KeyError, TypeError, ValueError):
                     pass
-                if state != "FRESH" or not fresh_quote:
+                if (
+                    state != "FRESH"
+                    or not fresh_quote
+                    or not account["reconciled"]
+                    or not research_current(reviews.get(stock["ticker"]), stock["ticker"], now)
+                ):
                     stock["status"] = "WAIT"
                     stock["allocation"] = None
-        account = account_state(events, now)
         marks = {}
         for quote in (latest or {}).get("observations", []):
             try:
@@ -349,7 +359,36 @@ def create_app(store=None, access_key=None, session_key=None, origin=None, sched
                 for e in events
                 if e["kind"] == "DRAFT"
             ][-20:],
+            "opening_drafts": [
+                {"id": e["id"], "snapshot": e["payload"]}
+                for e in events
+                if e["kind"] == "OPENING_DRAFT"
+                and not any(
+                    x["kind"] == "OPENING" and x["payload"].get("submission_id") == e["id"]
+                    for x in events
+                )
+            ],
             "scheduler_heartbeat": store.latest("SCHEDULER_HEARTBEAT"),
+        }
+
+    @app.post("/api/opening-holdings")
+    async def opening_draft(request: Request):
+        return {"id": store.opening_draft(await request.json()), "state": "PENDING_CONFIRMATION"}
+
+    @app.post("/api/opening-holdings/{identifier}/confirm")
+    async def opening_confirm(identifier: str, request: Request):
+        data = await request.json()
+        if data.get("confirm_current_snapshot") is not True:
+            raise ValueError("Confirm the actual current holding before importing")
+        return {"id": store.opening_confirm(identifier), "state": "CONFIRMED"}
+
+    @app.post("/api/opening-basis")
+    async def correct_basis(request: Request):
+        data = await request.json()
+        if data.get("verified_cost_basis") is not True:
+            raise ValueError("Independently verified historical basis required")
+        return {
+            "id": store.correct_basis(data["ticker"], data["total_cost_usd"], data.get("reason"))
         }
 
     @app.post("/api/account-snapshot")
@@ -414,6 +453,13 @@ def create_app(store=None, access_key=None, session_key=None, origin=None, sched
     async def reverse(identifier: str, request: Request):
         data = await request.json()
         return {"id": store.reverse(identifier, data.get("reason"))}
+
+    @app.post("/api/ledger/{identifier}/correct")
+    async def correct(identifier: str, request: Request):
+        data = await request.json()
+        if data.get("confirm_correction") is not True:
+            raise ValueError("Explicit correction confirmation required")
+        return {"id": store.correct(identifier, data["fill"], data.get("reason"))}
 
     @app.post("/api/notifications/test")
     def test_alert():

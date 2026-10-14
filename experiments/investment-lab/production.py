@@ -25,6 +25,7 @@ def scan(
     now=None,
     calendar=None,
 ):
+    fixed_clock = now
     now = now or datetime.now(UTC)
     calendar = calendar or ExchangeCalendar()
     history = history or fetch_yahoo
@@ -42,7 +43,9 @@ def scan(
     for ticker in watchlist:
         # Exchange metadata is explicit operational configuration, never inferred from price.
         exchange = config.get("exchanges", {}).get(ticker)
-        quote, seen, failed = select_quote(providers, ticker, exchange, entitlements, now, calendar)
+        quote, seen, failed = select_quote(
+            providers, ticker, exchange, entitlements, fixed_clock, calendar
+        )
         observations.extend(seen)
         errors.extend({"ticker": ticker, **failure} for failure in failed)
         stocks.append(
@@ -53,7 +56,7 @@ def scan(
                 quote,
                 research.get(ticker),
                 capital,
-                now,
+                fixed_clock or datetime.now(UTC),
                 calendar,
                 production,
             )
@@ -87,7 +90,11 @@ def scan(
 
 def runtime_inputs():
     path = os.getenv("INVESTMENT_ENTITLEMENTS_FILE")
-    data = json.loads(Path(path).read_text()) if path else {}
+    data = (
+        json.loads(Path(path).read_text())
+        if path
+        else json.loads(os.getenv("INVESTMENT_ENTITLEMENTS_JSON", "{}"))
+    )
     entitlements = {
         name: Entitlement(provider=name, **entry)
         for name, entry in data.items()

@@ -9,7 +9,7 @@ from risk import number
 def validate_snapshot(data, now):
     if data.get("user_verified") is not True:
         raise ValueError("Explicit current-account confirmation required")
-    observed = timestamp(data["observed_at_utc"])
+    observed = timestamp(data.get("observed_at_utc", ""))
     if not timedelta(0) <= now - observed <= timedelta(hours=24):
         raise ValueError("Current timestamped account snapshot required")
     result = {"user_verified": True, "observed_at_utc": observed.isoformat()}

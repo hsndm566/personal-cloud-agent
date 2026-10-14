@@ -69,8 +69,9 @@ freshness checks remove expired entry-review status. `WAIT` means no supported n
 
 Finnhub is conditional and disabled for production entry use until its exchange coverage,
 internal-use rights, Saudi-resident availability and real-time entitlement are documented.
-A private entitlement file supplies evidence URL, verification/expiration dates, exchanges
-(MIC identifiers), and documented delay. Set `INVESTMENT_ENTITLEMENTS_FILE` and
+A private entitlement file or `INVESTMENT_ENTITLEMENTS_JSON` supplies evidence URL,
+verification/expiration dates, exchanges (MIC identifiers), and documented delay. Set
+`INVESTMENT_ENTITLEMENTS_FILE` when using a file, and
 `FINNHUB_API_KEY` through secure runtime configuration. `INVESTMENT_EXCHANGES` is a
 private JSON ticker-to-MIC mapping verified against the provider's instrument metadata.
 
@@ -95,11 +96,18 @@ confirmed record with an audit reason, then submit the corrected fill. Reversals
 would create a negative position are rejected. Accounting uses weighted-average cost,
 includes fees, and never infers realized gains from an unsold position.
 
-An initial historical snapshot requires user reconciliation and secure provisioning.
+An initial holdings snapshot requires a current broker check and a second confirmation
+in the private mobile interface. Acquisition time is not inferred. Unknown basis remains
+unknown until the user supplies verified historical cost; corrections preserve an audit
+trail and recompute subsequent weighted-average accounting. Fills predating an opening
+snapshot are rejected to avoid double-counting. No personal snapshot is preloaded.
+
 Explicit cash snapshots are supported; estimated and confirmed amounts are separate.
 Snapshots expire after 24 hours and a later confirmed fill or correction disables sizing
-until another broker reconciliation. Historical basis correction UI, broker-preview
-import, screenshot extraction and iPhone Shortcut integration are not enabled.
+until another broker reconciliation. Atomic fill correction and reversal endpoints are
+provided; correcting a buy after a confirmed sale validates the complete replacement
+ledger in one transaction. Broker-preview import, screenshot extraction and iPhone
+Shortcut integration are not enabled.
 
 ## Notifications and scheduling
 

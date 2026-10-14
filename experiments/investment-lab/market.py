@@ -212,13 +212,13 @@ def select_quote(providers, ticker, exchange, entitlements, now, calendar):
     for provider in providers:
         entitlement = entitlements.get(provider.name, Entitlement(provider.name))
         # A smoke test is explicit. Production never contacts unapproved providers.
-        if not entitlement.eligible(exchange, now):
+        if not entitlement.eligible(exchange, now or datetime.now(UTC)):
             failures.append({"provider": provider.name, "code": "entitlement_unverified"})
             continue
         try:
-            observations.append(
-                provider.quote(ticker, exchange, now).record(now, calendar, entitlement)
-            )
+            quote = provider.quote(ticker, exchange, now or datetime.now(UTC))
+            # Receipt time measures age only; it never replaces observation time.
+            observations.append(quote.record(now or datetime.now(UTC), calendar, entitlement))
         except ProviderError as error:
             failures.append({"provider": provider.name, "code": str(error)})
     eligible = [q for q in observations if q["eligible"]]
