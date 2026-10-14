@@ -1,97 +1,27 @@
-name: Investment Lab (research only)
+name: Investment Lab (public tests only)
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '0 14-21 * * 1-5'
   pull_request:
     paths:
       - 'experiments/investment-lab/**'
       - '.github/workflows/investment-lab.yml'
-
+  push:
+    branches: [main]
+    paths:
+      - 'experiments/investment-lab/**'
+      - '.github/workflows/investment-lab.yml'
 permissions:
   contents: read
-  issues: write
-
-concurrency:
-  group: investment-lab-research
-  cancel-in-progress: false
-
 jobs:
-  scan:
+  test:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-      - name: Tests
-        run: python -m unittest discover -s experiments/investment-lab/tests -v
-      - name: Install optional Yahoo Finance adapter
-        run: python -m pip install 'yfinance>=0.2.58,<2'
-      - name: Research scan (no orders)
-        run: python experiments/investment-lab/lab.py
-      - name: Report summary
-        if: always()
-        run: |
-          if [ -f experiments/investment-lab/reports/report.md ]; then
-            cat experiments/investment-lab/reports/report.md >> "$GITHUB_STEP_SUMMARY"
-          fi
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: investment-lab-research
-          path: experiments/investment-lab/reports/
-          retention-days: 30
-      - name: Dedupe risk alerts (default branch only)
-        if: github.ref == 'refs/heads/main'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          python - <<'PY'
-          import json, subprocess
-          from pathlib import Path
-          from datetime import datetime, timezone
-          p = Path('experiments/investment-lab/reports')
-          alerts = json.loads((p/'alerts.json').read_text())
-          new = []
-          today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
-          for a in alerts:
-              title = f"Investment Lab {today} {a['ticker']} {a['status']}"
-              query = f'"{title}" in:title'
-              r = subprocess.run(['gh','issue','list','--state','all','--limit','100',
-                                  '--search',query,'--json','title'],capture_output=True,text=True)
-              if r.returncode != 0:
-                  print('Issue search unavailable; no push alert')
-                  continue
-              if any(i['title'] == title for i in json.loads(r.stdout)):
-                  continue
-              body = ('RESEARCH ONLY. Verify broker quote and risk. No automatic order.\n\n'
-                      + json.dumps(a,indent=2))
-              c = subprocess.run(['gh','issue','create','--title',title,'--body',body],
-                                 capture_output=True,text=True)
-              if c.returncode == 0:
-                  new.append(title)
-              else:
-                  print('Issue write failed: no outbound notification')
-          (p/'new_alerts.json').write_text(json.dumps(new))
-          PY
-      - name: Optional Telegram push
-        if: github.ref == 'refs/heads/main'
-        env:
-          BOT: ${{ secrets.INVESTMENT_TELEGRAM_BOT_TOKEN }}
-          CHAT: ${{ secrets.INVESTMENT_TELEGRAM_CHAT_ID }}
-        run: |
-          python - <<'PY'
-          import json,os,urllib.parse,urllib.request
-          from pathlib import Path
-          p=Path('experiments/investment-lab/reports/new_alerts.json')
-          alerts=json.loads(p.read_text()) if p.exists() else []
-          if alerts and os.getenv('BOT') and os.getenv('CHAT'):
-              form=urllib.parse.urlencode({'chat_id':os.environ['CHAT'],
-                                           'text':'Investment Lab — review broker manually:\n'+'\n'.join(alerts)})
-              url='https://api.telegram.org/bot'+os.environ['BOT']+'/sendMessage'
-              urllib.request.urlopen(urllib.request.Request(url,data=form.encode()),timeout=15).read()
-          else:
-              print('No new alert or Telegram not configured')
-          PY
+          python-version: '3.12'
+      - run: pip install -r experiments/investment-lab/requirements.txt
+      - run: python -m unittest discover -s experiments/investment-lab/tests -v
+# Production schedules, reports, secrets and notifications belong in the private companion.
+# No public artifacts, issue notifications, account configuration or live PR signals.

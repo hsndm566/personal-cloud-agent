@@ -1,52 +1,164 @@
-# Investment Lab — USD stock scanner for SAR 409
+# Investment Lab V2
 
-This is a **research-only, isolated** module. It does not execute or authorize trades and does not alter the existing LangGraph/FastAPI application. Outputs are watchlist observations, not guaranteed returns.
+Isolated, long-only research software. It neither places nor authorizes brokerage orders.
+The broader FastAPI/LangGraph application is unchanged. No brokerage password is needed.
 
-## Objective
-- Research capital: 409 SAR = about USD 109.07 at the reference exchange rate of 3.75 SAR/USD.
-- Aspirational same-day gain: 50 SAR (~12.22% of the full balance). Not a realistic daily expectation.
-- Theoretical risk per position: at most 1% of capital (4.09 SAR) before gaps/slippage; at most 100 SAR of capital allocated to the first candidate. Execution risk may exceed these amounts.
-- Watchlist: SPY, HL, XLF, AAPL, SOFI; October 13 candidates: UNH (earnings beat), GS (bank earnings), CRM (relative-strength candidate). These are research candidates, not recommended trades. All entries start with zero verified positions.
+## Public and private boundaries
 
-## Run
+This public directory contains reusable algorithms, provider interfaces, a private-service
+implementation, and synthetic tests. Production scheduling, deployment configuration,
+migrations, reports, accounting records and secrets belong in private infrastructure.
+Public CI runs tests only: it never uploads reports, creates alert issues, accesses
+production credentials, or generates production signals. Do not pass financial records
+to public workflows, logs, screenshots, or artifacts.
 
-Requires Python 3.11+, with only yfinance installed for external data:
+Historical configuration is **not an account balance**. Confirmed cash, estimated cash,
+buying power and FX are unavailable unless independently supplied and reconciled.
+No historical personal holdings are seeded. Unknown historical basis stays unknown.
 
-    pip install 'yfinance>=0.2.58,<2'
-    python experiments/investment-lab/lab.py
-    python -m unittest discover -s experiments/investment-lab/tests -v
+## Local development
 
-Reports are written to experiments/investment-lab/reports/report.json, report.md and alerts.json.
+Requires Python 3.12 or newer:
 
-## Core checks
+```sh
+python -m venv .venv
+. .venv/bin/activate
+pip install -r experiments/investment-lab/requirements.txt
+python -m unittest discover -s experiments/investment-lab/tests -v
+python experiments/investment-lab/lab.py
+```
 
-The scanner reads 6 months of Yahoo historical candles and recent 5-minute bars, both **unofficial/delayed**. It excludes today's possibly incomplete daily candle. It rejects missing/older-than-20-minute quotes and nonregular US market hours. It checks benchmark SPY above its 50-session average, positive 10/20/50-session moving-average alignment, liquidity, five-day momentum and whether a stock looks overextended. For Awaed, assume the *displayed* chart may lag by about 15 minutes: observations are research-grade, not executable quotes. Never chase a quote over 1.5% above a calculated trigger.
+The last command performs public **historical research only**. It requires Yahoo access
+and writes ignored local reports. Yahoo is never an entry-validation quote source.
+The retained `analyze` function exposes historical five-factor and sizing calculations;
+it can only return historical watch/no-trade states, never a production entry review.
 
-The only special state is **ENTRY_REVIEW**: a technical setup whose trigger may have been reached. It requires independent confirmation of broker bid/ask, spread, order size, and actual risk. It never means automatically BUY. It can emit STOP_REVIEW only for user-confirmed local positions. The engine now calculates both whole-share and rounded-down fractional-share sizing, needed because Awaed accepts SAR amounts; it still requires broker preview and a real fill before tracking P/L. No short selling, leverage, options or market orders are supported.
+To run the private service after private migrations and credentials are provisioned:
 
-## Private positions
+```sh
+cd experiments/investment-lab
+uvicorn lab_service:app --host 0.0.0.0 --port 8000 --no-access-log
+```
 
-**The GitHub repository is public. Never commit actual holdings here.** Copy data/holdings.example.csv to data/holdings.csv locally. That private file is .gitignored. Do not run GitHub public Actions with actual holdings or upload a private holdings report to a public artifact.
+Required private runtime settings: `DATABASE_URL` (least-privilege application role),
+`INVESTMENT_OWNER`, `INVESTMENT_ACCESS_KEY` (32+ random characters),
+`INVESTMENT_SESSION_KEY`, and `INVESTMENT_ORIGIN` (HTTPS origin).
+The service refuses authenticated access if authentication is not provisioned.
+Never use the database administrator role for application requests.
 
-Format: ticker,quantity,cost_usd,stop_usd
+## Research gates
 
-The stop field is a reference threshold; it does NOT place a protective order. The user's old HL and VOO positions are unverified and are not preloaded.
+Five factors are retained: trend alignment, dollar liquidity, extension control,
+five-session momentum and SPY above its 50-session average. The trigger is 0.1% above
+the preceding five completed sessions' high; entries over 1.5% above it are rejected.
+Exchange calendars handle New York DST, holidays and early closes. User times use Riyadh.
 
-## GitHub notifications
+`CONDITIONAL ENTRY REVIEW` additionally requires current valid stock/SPY history, an
+eligible quote observed within 20 minutes, independently reviewed recent primary-source
+news, evidenced upside with at least 2:1 theoretical reward/risk after cost assumptions,
+and conservative fractional sizing. It always requires an Awaed preview and never
+represents executable pricing. Broker-supported precision must be explicitly supplied.
+Planned risk is capped at 4.09 SAR and allocation at 100 SAR. Fees, FX, spread and slippage
+assumptions cannot be silently invented. Gaps and slippage can exceed planned loss.
 
-After a PR is merged, the workflow runs hourly on US weekdays at 14–21 UTC (best-effort GitHub scheduling). It also supports manual runs. Tests run before research. Research reports become GitHub Actions artifacts. On the default branch, only a NEW action-review state creates a dated GitHub issue. Optional Telegram delivery requires secrets INVESTMENT_TELEGRAM_BOT_TOKEN and INVESTMENT_TELEGRAM_CHAT_ID; no alerts are pushed without both configured. GitHub issues are not guaranteed push notifications.
+Missing production reports are `UNAVAILABLE`, reports older than 90 minutes are `STALE`,
+and failed scans are `SCANNER_UNAVAILABLE`. Research/PR runs never qualify. Read-time
+freshness checks remove expired entry-review status. `WAIT` means no supported new entry.
 
-## Source projects, licensing and roadmap
+## Market-data entitlements
 
-- ZhuLinsen/daily_stock_analysis (MIT): research-analysis inspiration; an import adapter for its structured output requires a subsequent schema-verification step. No external code is bundled.
-- QuantConnect/Lean (Apache 2.0): proposed paper-trading/backtest validation phase; not currently integrated.
-- Open-Dev-Society/OpenStock (AGPL-3.0): interface inspiration only; no AGPL source copied.
-- StockSharp/StockSharp: restricted/proprietary source; no code copied.
+Finnhub is conditional and disabled for production entry use until its exchange coverage,
+internal-use rights, Saudi-resident availability and real-time entitlement are documented.
+A private entitlement file or `INVESTMENT_ENTITLEMENTS_JSON` supplies evidence URL,
+verification/expiration dates, exchanges (MIC identifiers), and documented delay. Set
+`INVESTMENT_ENTITLEMENTS_FILE` when using a file, and
+`FINNHUB_API_KEY` through secure runtime configuration. `INVESTMENT_EXCHANGES` is a
+private JSON ticker-to-MIC mapping verified against the provider's instrument metadata.
 
-This first phase is intentionally small and cost-conscious. Its Yahoo source can become unavailable or stale; this is handled by NO_TRADE instead of inventing prices. A full strategy needs timestamped historical prediction storage, out-of-sample testing, benchmark and slippage evaluation, and a licensed broker/data provider before considering live execution.
+```sh
+python experiments/investment-lab/production.py --entitlement-smoke
+```
 
-**Verification status:** static scanner and offline tests supplied. Actual external price access, GitHub production schedule and Telegram delivery remain unverified until runs succeed and secrets are configured.
+The smoke test uses the provider observation timestamp, never receipt time, and does not
+establish licensing rights by itself. Quote records contain source, UTC/Riyadh/market time,
+age, session, delay, classification and eligibility. Missing values remain null.
+Finnhub quotes are indicative; consolidated/executable status is not assumed.
+Twelve Data is explicitly blocked. A second licensed provider is not yet implemented;
+the interface and discrepancy rejection tests are provided. Yahoo is history-only.
 
-## Live-entry amount check (October 2026)
+## Private operations and mobile records
 
-The maximum SAR spend in the report is recalculated from the **most recent indicative quote** and theoretical stop distance, not just the historic breakout trigger. This never overrides an actual Awaed broker preview. For a user-entered SAR purchase, recompute `(fill_price - stop) / fill_price * SAR_amount <= 4.09 SAR` before placing an order, excluding slippage and costs. Reject unverified or stale quote timestamps. A reference stop is not an exchange order and cannot guarantee a maximum realized loss.
+The service offers secure-cookie authentication, same-origin CSRF checks, rate limits,
+private reports and an actual-fill form. Every fill passes DRAFT → PENDING_CONFIRMATION
+→ CONFIRMED. Confirmations are append-only ledger events; atomic PostgreSQL transactions,
+account locks and unique fingerprints prevent repeat purchases. Corrections reverse a
+confirmed record with an audit reason, then submit the corrected fill. Reversals that
+would create a negative position are rejected. Accounting uses weighted-average cost,
+includes fees, and never infers realized gains from an unsold position.
+
+An initial holdings snapshot requires a current broker check and a second confirmation
+in the private mobile interface. Acquisition time is not inferred. Unknown basis remains
+unknown until the user supplies verified historical cost; corrections preserve an audit
+trail and recompute subsequent weighted-average accounting. Fills predating an opening
+snapshot are rejected to avoid double-counting. No personal snapshot is preloaded.
+
+Explicit cash snapshots are supported; estimated and confirmed amounts are separate.
+Snapshots expire after 24 hours and a later confirmed fill or correction disables sizing
+until another broker reconciliation. Atomic fill correction and reversal endpoints are
+provided; correcting a buy after a confirmed sale validates the complete replacement
+ledger in one transaction. Broker-preview import, screenshot extraction and iPhone
+Shortcut integration are not enabled.
+
+## Notifications and scheduling
+
+Telegram uses private runtime secrets `INVESTMENT_TELEGRAM_BOT_TOKEN` and
+`INVESTMENT_TELEGRAM_CHAT_ID`. Only provision an authorized private chat. Lock-screen
+messages omit allocation, holdings and balances; those belong behind authentication.
+No Telegram webhook is exposed. `INVESTMENT_QUIET_HOURS` defaults to `23,7` in Riyadh;
+`0,0` disables quiet hours. The authenticated test button sends an explicitly labeled
+synthetic test, not a market opportunity.
+
+The PostgreSQL outbox deduplicates signals, applies category cooldowns, and records
+submission attempts. HTTP 429 is retried with bounded attempts. Timeouts are `unknown`,
+not automatically resent: Telegram has no idempotency key, so resending could duplicate
+a message. A process interrupted during submission leaves `sending`, requiring operator
+review. API `submitted` never means delivered to the phone or read.
+
+`INVESTMENT_SCHEDULER_ENABLED=true` enables the exchange-aware service scheduler.
+It checks at one-minute intervals and scans hourly during regular U.S. sessions.
+Advisory locks serialize scans across replicas. Scheduler and scanner heartbeats are
+separate. An independent freshness monitor should run from the private companion;
+without its deployment, external outage detection remains unverified.
+The separate ChatGPT monitoring automation is not modified.
+
+## Research and evaluation limits
+
+The Perplexity adapter uses the documented `POST /v1/agent` request with web and finance
+search, four tool steps and an output-token bound. It is disabled by default: configure
+`PERPLEXITY_API_KEY`, `PERPLEXITY_MODEL`, `PERPLEXITY_MONTHLY_LIMIT_USD`, and a verified
+`PERPLEXITY_REQUEST_BOUND_USD` only after confirming a provider-side billing cap, then set
+`PERPLEXITY_BILLING_CAP_VERIFIED=true`. Local budget reservations serialize concurrent calls,
+limit calls to three per UTC day, and retain reservations after ambiguous failures.
+A response exceeding the verified per-request bound disables subsequent calls. Local
+accounting cannot substitute for a provider-enforced billing cap.
+
+Authenticated `/api/research/gather` accepts one to five watchlist tickers. It stores
+sources, reported publication dates, retrieval times and cited claims as **drafts**.
+It never turns model-written dates or primary-source claims into independent verification.
+`/api/research/review` accepts a source-backed review following the gate contract, after
+an operator independently checks publication times and primary sources. The zero-dollar
+fallback marks news unavailable and blocks entry review. No recent catalysts are invented.
+The live Perplexity request and billing entitlement remain unverified without credentials.
+
+Walk-forward backtesting and statistical prediction calibration are not implemented.
+No historical performance or accuracy claim is made. `backtesting.py` is not imported
+or copied: its AGPL-3.0 obligations require review, and subprocess isolation does not
+remove those obligations. Prediction events are logged before subsequent outcomes;
+automatic outcome evaluation remains pending.
+
+## Verification
+
+Run the public tests above. Private PostgreSQL acceptance tests additionally exercise
+RLS, append-only grants, concurrent deduplication, ledger state transitions, authentication,
+CSRF rejection, synthetic Telegram transport submission and retry behavior. A mocked
+transport test does not establish a real Telegram delivery or provider entitlement.
