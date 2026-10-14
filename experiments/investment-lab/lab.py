@@ -33,13 +33,13 @@ class Quote:
 
 
 def quote_is_fresh(quote: Quote | None, now: datetime) -> bool:
-    if not quote:
+    if not quote or not math.isfinite(quote.price) or quote.price <= 0:
         return False
     ny = now.astimezone(ET)
     if ny.weekday() >= 5 or not ((9, 30) <= (ny.hour, ny.minute) < (16, 0)):
         return False
     try:
-        observed = datetime.fromisoformat(quote.observed_at_utc.replace("Z", "+00:00"))
+        observed = datetime.fromisoformat(quote.observed_at_utc)
         if observed.tzinfo is None:
             return False
         lag = now - observed.astimezone(UTC)
@@ -85,16 +85,7 @@ def fetch_yahoo(ticker: str) -> tuple[list[DailyBar], Quote | None]:
         if not all(math.isfinite(v) for v in vals):
             continue
         bars.append(DailyBar(str(index.date()), *vals))
-    intraday = obj.history(period="2d", interval="5m", prepost=False, auto_adjust=True)
-    quote = None
-    if not intraday.empty:
-        stamp = intraday.index[-1]
-        last = float(intraday["Close"].iloc[-1])
-        if stamp.tzinfo is not None and math.isfinite(last) and last > 0:
-            quote = Quote(
-                last, stamp.to_pydatetime().astimezone(UTC).isoformat(), "Yahoo 5-minute bar"
-            )
-    return bars, quote
+    return bars, None
 
 
 def analyze(
@@ -113,7 +104,11 @@ def analyze(
         bars = bars[:-1]
     if benchmark and benchmark[-1].date == now.astimezone(ET).date().isoformat():
         benchmark = benchmark[:-1]
-    if len(bars) < 55 or len(benchmark) < 55 or any(x.close <= 0 for x in bars):
+    if (
+        len(bars) < 55
+        or len(benchmark) < 55
+        or any(not math.isfinite(x.close) or x.close <= 0 for x in bars + benchmark)
+    ):
         return {**out, "reason": "Insufficient valid historical candles"}
     closes = [x.close for x in bars]
     bc = [x.close for x in benchmark]
@@ -152,6 +147,13 @@ def analyze(
     out.update(
         {
             "score_0_to_5": score,
+            "checks": {
+                "trend_alignment": trend,
+                "liquidity": liquid,
+                "extension_control": not_extended,
+                "five_day_momentum": momentum_ok,
+                "spy_benchmark": benchmark_ok,
+            },
             "ma10": round(ma10, 3),
             "ma20": round(ma20, 3),
             "ma50": round(ma50, 3),
@@ -199,93 +201,30 @@ def analyze(
         out.update(status="WATCH", reason="Delayed quote is over 1.5% above entry; avoid chasing")
     else:
         out.update(
-            status="ENTRY_REVIEW",
-            reason="Manual broker quote/bid-ask and trade-risk review required",
+            status="WATCH",
+            reason="Technical candidate only; private production gates and broker preview required",
         )
     return out
 
 
 def run(config_path: Path, holdings_path: Path, report_folder: Path) -> dict:
-    config = json.loads(config_path.read_text(encoding="utf-8"))
-    budget = float(config["capital_sar"])
-    risk = float(config["risk_pct_per_trade"])
-    allocation = float(config["max_position_pct"])
-    if budget <= 0 or not 0 < risk <= 0.03 or not 0 < allocation <= 0.5:
-        raise ValueError("Invalid capital or risk cap")
-    holdings = load_holdings(holdings_path)
-    watchlist = list(dict.fromkeys(x.strip().upper() for x in config["watchlist"]))
-    tickers = list(dict.fromkeys(watchlist + [x["ticker"] for x in holdings] + ["SPY"]))
-    quotes = {}
-    errors = []
-    for ticker in tickers:
-        try:
-            quotes[ticker] = fetch_yahoo(ticker)
-        except Exception as e:
-            errors.append(f"{ticker}: market provider failed ({type(e).__name__})")
-            quotes[ticker] = ([], None)
-    now = datetime.now(UTC)
-    benchmark = quotes["SPY"][0]
-    stocks = [
-        analyze(t, quotes[t][0], quotes[t][1], benchmark, budget, risk, allocation, now)
-        for t in watchlist
-    ]
-    positions = []
-    for h in holdings:
-        q = quotes[h["ticker"]][1]
-        fresh = quote_is_fresh(q, now)
-        status = (
-            "STOP_REVIEW"
-            if fresh and q.price <= h["stop_usd"]
-            else ("MONITOR" if fresh else "HOLD_UNVERIFIED")
+    """Public, capital-free historical research only. Private operations use production.py."""
+    if holdings_path.exists():
+        raise ValueError(
+            "Private holdings must use private database operations, not public reports"
         )
-        positions.append(
-            {
-                **h,
-                "quote": asdict(q) if q else None,
-                "status": status,
-                "pnl_sar": round((q.price - h["cost_usd"]) * h["quantity"] * SAR_PER_USD, 2)
-                if fresh
-                else None,
-            }
-        )
-    payload = {
-        "as_of_utc": now.isoformat(),
-        "capital_sar": budget,
-        "aspirational_goal_sar": config["aspirational_goal_sar"],
-        "stocks": stocks,
-        "positions": positions,
-        "provider_errors": errors,
-        "warning": "Research-only. This service never places or authorizes trades.",
-    }
+    from production import scan
+
+    payload = scan(json.loads(config_path.read_text()), production=False)
     report_folder.mkdir(parents=True, exist_ok=True)
-    (report_folder / "report.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    lines = [
-        "# Investment Lab — research only",
-        "",
-        f"Generated {payload['as_of_utc']}",
-        f"Available research capital: {budget} SAR; aspirational gain: {payload['aspirational_goal_sar']} SAR",
-        "No stock order has been placed. Broker quote and risk verification required.",
-        "",
-        "|Ticker|Status|Score / 5|Quote USD|Trigger USD|Whole shares|Fractional shares at quote|Max spend SAR at quote|Explanation|",
-        "|---|---|---|---|---|---|---|---|---|",
-    ]
-    for s in stocks:
-        q = s["quote"] or {}
-        lines.append(
-            f"|{s['ticker']}|{s['status']}|{s.get('score_0_to_5', '—')}|{q.get('price', '—')}|"
-            f"{s.get('technical_entry_above_usd', '—')}|{s.get('whole_shares_within_risk', '—')}|"
-            f"{s.get('quote_risk_capped_fractional_shares', '—')}|{s.get('quote_max_spend_sar', '—')}|{s.get('reason', '')}|"
-        )
-    lines += ["", "## Confirmed positions (private CSV only)", ""]
-    for h in positions:
-        lines.append(f"{h['ticker']} — {h['status']} — P/L SAR: {h['pnl_sar']}")
-    if errors:
-        lines.extend(["", "Provider failures:", *errors])
-    (report_folder / "report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    alerts = [s for s in stocks if s["status"] == "ENTRY_REVIEW"] + [
-        h for h in positions if h["status"] == "STOP_REVIEW"
-    ]
-    (report_folder / "alerts.json").write_text(json.dumps(alerts, indent=2), encoding="utf-8")
+    (report_folder / "report.json").write_text(json.dumps(payload, indent=2))
+    (report_folder / "report.md").write_text(
+        "# Investment Lab — historical research only\n\n"
+        + "Production signals and personal capital are unavailable in public runs.\n"
+        + "\n".join(f"{s['ticker']}: {s['status']}" for s in payload["stocks"])
+        + "\n"
+    )
+    (report_folder / "alerts.json").write_text("[]")
     return payload
 
 
@@ -297,4 +236,4 @@ if __name__ == "__main__":
     parser.add_argument("--reports", type=Path, default=here / "reports")
     args = parser.parse_args()
     summary = run(args.config, args.holdings, args.reports)
-    print((args.reports / "report.md").read_text(encoding="utf-8"))
+    print("Historical research completed; no production signals or notifications.")

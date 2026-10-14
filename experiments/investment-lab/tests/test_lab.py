@@ -40,24 +40,24 @@ class ScannerTests(unittest.TestCase):
         )
         self.assertLessEqual(shares * result["technical_entry_above_usd"] * 3.75, 204.51)
 
-    @patch("lab.fetch_yahoo", return_value=([], None))
+    @patch("production.fetch_yahoo", return_value=([], None))
     def test_empty_private_holdings_do_not_get_invented(self, _):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "config.json").write_text(
                 json.dumps(
-                    dict(
-                        capital_sar=409,
-                        aspirational_goal_sar=50,
-                        risk_pct_per_trade=0.01,
-                        max_position_pct=0.5,
-                        watchlist=["HL"],
-                    )
+                    {
+                        "capital_sar": 409,
+                        "aspirational_goal_sar": 50,
+                        "risk_pct_per_trade": 0.01,
+                        "max_position_pct": 0.5,
+                        "watchlist": ["HL"],
+                    }
                 )
             )
             data = run(root / "config.json", root / "holdings.csv", root / "reports")
             self.assertEqual(data["positions"], [])
-            self.assertEqual(data["stocks"][0]["status"], "NO_TRADE")
+            self.assertEqual(data["stocks"][0]["status"], "WAIT")
             self.assertTrue((root / "reports/report.json").exists())
 
     def test_fractional_expensive_share_sizing_and_entry_review(self):
@@ -77,7 +77,7 @@ class ScannerTests(unittest.TestCase):
         self.assertLessEqual(result["quote_estimated_stop_risk_sar"], 4.10)
         self.assertLessEqual(result["quote_max_spend_sar"], 100.01)
         self.assertGreater(result["quote_risk_capped_fractional_shares"], 0)
-        self.assertEqual(result["status"], "ENTRY_REVIEW")
+        self.assertEqual(result["status"], "WATCH")
 
     def test_delayed_breakout_chase_does_not_trigger_entry(self):
         bars = [

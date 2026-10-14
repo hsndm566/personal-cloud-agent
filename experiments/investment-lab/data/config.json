@@ -1,24 +1,27 @@
 {
-  "capital_sar": 409,
-  "aspirational_goal_sar": 50,
-  "risk_pct_per_trade": 0.01,
-  "max_position_pct": 0.24449877750611246,
   "watchlist": [
-    "SPY",
     "HL",
+    "SPY",
     "XLF",
-    "AAPL",
     "SOFI",
+    "AAPL",
     "UNH",
     "GS",
     "CRM",
-    "META",
-    "IBM",
-    "MSFT",
+    "XLE",
     "BP",
+    "META",
+    "MSFT",
+    "VOO",
+    "IBM",
     "V",
     "GLD",
     "GDX",
-    "XLE"
+    "XOM",
+    "CVX",
+    "OXY",
+    "TRGP",
+    "VLO",
+    "FANG"
   ]
 }
